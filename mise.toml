@@ -1,2 +1,19 @@
 [tools]
 go = "1.27.4"
+golangci-lint = "2.15.0"
+
+[tasks.build]
+description = "Compila hcs en bin/"
+run = "go build -o bin/hcs ./cmd/hcs"
+
+[tasks.test]
+description = "Tests con el race detector"
+run = "go test -race ./..."
+
+[tasks.lint]
+description = "go vet + golangci-lint"
+run = ["go vet ./...", "golangci-lint run"]
+
+[tasks.check]
+description = "Lo que tiene que pasar antes de cada commit"
+depends = ["lint", "test", "build"]
