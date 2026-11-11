@@ -181,6 +181,30 @@ func TestHardDenyCannotBeOverridden(t *testing.T) {
 	}
 }
 
+func TestPruneDir(t *testing.T) {
+	m := defaultMatcher(t)
+	for dir, want := range map[string]bool{
+		"custom_components":          true,
+		"custom_components/hacs":     true,
+		".cache":                     true,
+		"deps":                       true,
+		"esphome/.esphome":           true,
+		".git":                       true,
+		"sub/.git":                   true,
+		".cloud":                     true,
+		"x/.ssh":                     true,
+		".storage":                   false, // adentro están los lovelace*
+		"packages":                   false,
+		"esphome":                    false,
+		"python_scripts":             false,
+		"python_scripts/__pycache__": true,
+	} {
+		if got := m.PruneDir(0, dir); got != want {
+			t.Errorf("PruneDir(%q) = %v, quería %v", dir, got, want)
+		}
+	}
+}
+
 func TestNewRejectsInvalidGlob(t *testing.T) {
 	if _, err := New([]config.Mapping{{Repo: "c", Box: "/c", Include: []string{"[x"}}}); err == nil {
 		t.Error("quería error por glob inválido")

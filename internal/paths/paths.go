@@ -185,6 +185,33 @@ func (m *Matcher) classifyRel(i int, rel string) Result {
 	return r
 }
 
+// PruneDir dice si el escaneo puede saltear un directorio entero del mapeo i
+// (relDir relativo a su raíz, con '/'): pasa con los directorios .git y
+// cuando un patrón "X/**" de exclude o de la denylist cubre todo lo de
+// adentro. Ahorra recorrer custom_components, deps, .cache, etc.
+func (m *Matcher) PruneDir(i int, relDir string) bool {
+	if strings.EqualFold(path.Base(relDir), ".git") {
+		return true
+	}
+	return dirCovered(HardDeny, strings.ToLower(relDir)) || dirCovered(m.mappings[i].Exclude, relDir)
+}
+
+// dirCovered dice si algún patrón "X/**" cubre a dir o a uno de sus ancestros.
+func dirCovered(globs []string, dir string) bool {
+	for _, g := range globs {
+		prefix, ok := strings.CutSuffix(g, "/**")
+		if !ok {
+			continue
+		}
+		for d := dir; d != "." && d != "/" && d != ""; d = path.Dir(d) {
+			if ok, err := doublestar.Match(prefix, d); err == nil && ok {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // HardDenied dice si un path relativo a la raíz de un mapeo cae en la
 // denylist dura. No distingue mayúsculas.
 func HardDenied(rel string) bool {

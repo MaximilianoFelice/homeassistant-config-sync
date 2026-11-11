@@ -171,7 +171,9 @@ Como es una whitelist, `.storage` queda afuera salvo lo que se incluye explícit
 ### Guards de seguridad del escaneo
 
 - **Raíz vacía o ausente:** si el directorio de un mapeo no existe o no tiene ningún path gestionado y el árbol `box` sí tenía, el ciclo aborta (`suspicious_snapshot`). Es la protección contra un mount roto que se interpretaría como "borraron todo".
-- **Borrado masivo:** si un snapshot borra más de `delete_guard_percent` (default 20 %) o más de `delete_guard_files` (default 25) de los paths gestionados, aborta y pide confirmación. Lo mismo aplica a un cambio entrante desde `main`.
+- **Borrado masivo:** si un snapshot borra más de `delete_guard_files` (default 25) paths gestionados, o al menos 5 que además superan el `delete_guard_percent` (default 20 %) de los gestionados, aborta y pide confirmación. El mínimo de 5 evita que borrar 1 de 4 archivos en una config chica frene el sync. Lo mismo aplica a un cambio entrante desde `main`.
+- **Saltear nunca es borrar:** un archivo que se saltea (grande, binario, symlink, inestable, ilegible, o un directorio ilegible entero) conserva en `box` la versión que tenía.
+- **Cache de stat:** se reusa el blob de un archivo si coinciden tamaño, `mtime`, `ctime`, inode y modo. Un archivo modificado hace menos de 2 s no entra a la cache, y como `ctime` cambia con cualquier escritura, restaurar el `mtime` a mano no esconde una edición.
 - **Lecturas inestables:** se hashea cada archivo y se vuelve a hacer stat. Si cambió `mtime` o el tamaño durante la lectura, se reintenta (hasta 3 veces) y si sigue cambiando, ese path se deja para el próximo ciclo.
 
 ## 6. Modelo de sync
