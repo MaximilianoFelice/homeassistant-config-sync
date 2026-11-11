@@ -410,7 +410,7 @@ Lo que este proyecto agrega: sync real en las dos direcciones con merge de 3 ví
 
 ## 17. Preguntas abiertas
 
-1. Licencia (MIT o Apache-2.0).
+1. ~~Licencia~~: MIT (decidido 2026-11-11). El repo arranca privado y se hace público cuando haya código.
 2. Nombre del slug (`homeassistant_config_sync`) y del binario (`hcs`).
 3. Default de `sync_interval_minutes` (15) y de `mode` (`bidirectional`).
 4. Si `custom_components/**` debería ser opt-in (como está) o directamente imposible de gestionar.
