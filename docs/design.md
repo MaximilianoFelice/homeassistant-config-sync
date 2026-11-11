@@ -223,6 +223,8 @@ Detalles:
 - **Mover `box` localmente antes de pushear** hace que un push rechazado no rompa nada: el disco ya está en R, `box` dice R, y el próximo intento mergea R contra el `main` nuevo.
 - **Durante un conflicto el box se sigue snapshoteando** (los cambios del box nunca se pierden) pero no se aplica nada desde `main`.
 - **Un `R` rechazado por el check** se recuerda en `state.json` y no se reintenta hasta que `origin/main` cambie.
+- **Los paths `push_only` siempre quedan como en `box`.** En cualquier caso de merge, `R` lleva la versión de `box` de esos paths. Si `main` los había cambiado o borrado, se descarta y se reporta en `Overridden`. En el caso fast-forward eso significa un commit nuevo sobre `main`. Un conflicto de contenido, add/add o modify/delete en el que todos los paths son `push_only` se resuelve solo a favor del box. Los conflictos de estructura (archivo/directorio, renombres) frenan siempre, porque git deja paths auxiliares en el árbol.
+- **Historias sin relación** (alguien reescribió `main` desde cero): el merge falla con un error explícito y no se aplica nada.
 
 ### Conflictos
 

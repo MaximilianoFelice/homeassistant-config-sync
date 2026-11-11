@@ -17,10 +17,6 @@ import (
 	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/scan"
 )
 
-// Committer es la identidad con la que el motor firma sus commits como
-// committer; el autor sale de la config (commit_author).
-const Committer = "homeassistant-config-sync <noreply@homeassistant-config-sync.invalid>"
-
 // minDeletesForPercent: el umbral porcentual del guard de borrado masivo
 // solo aplica desde esta cantidad de borrados, para que borrar 1 de 4
 // archivos en una config chica no frene el sync.
@@ -170,7 +166,8 @@ func Take(ctx context.Context, repo *gitx.Repo, opts Options) (*Result, error) {
 	if err != nil {
 		return res, err
 	}
-	committer, _ := gitx.ParseIdent(Committer, when)
+	// El autor sale de la config (commit_author); el committer es el motor.
+	committer, _ := gitx.ParseIdent(gitx.EngineIdent, when)
 	var parents []string
 	if parent != "" {
 		parents = []string{parent}

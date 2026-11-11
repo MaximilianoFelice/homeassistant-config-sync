@@ -23,6 +23,10 @@ import (
 // ZeroOID es el OID que git usa para "no existe" (SHA-1).
 const ZeroOID = "0000000000000000000000000000000000000000"
 
+// EngineIdent es la identidad del motor: committer de todos sus commits y
+// autor de los merges.
+const EngineIdent = "homeassistant-config-sync <noreply@homeassistant-config-sync.invalid>"
+
 // Options configura cómo se invoca git.
 type Options struct {
 	// AllowFile habilita remotos file:// y paths locales (v0 y tests).
@@ -46,6 +50,9 @@ type Repo struct {
 type Error struct {
 	Args   []string
 	Stderr string
+	// Stdout se conserva porque algunos comandos (merge-tree) usan un exit
+	// distinto de 0 con salida válida.
+	Stdout []byte
 	Err    error
 }
 
@@ -144,7 +151,7 @@ func (r *Repo) runEnv(ctx context.Context, extraEnv []string, stdin io.Reader, a
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return nil, &Error{Args: args, Stderr: stderr.String(), Err: err}
+		return nil, &Error{Args: args, Stderr: stderr.String(), Stdout: stdout.Bytes(), Err: err}
 	}
 	return stdout.Bytes(), nil
 }
