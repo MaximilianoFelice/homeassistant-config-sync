@@ -3,10 +3,13 @@ package engine
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -663,6 +666,51 @@ func TestSomeonePushedToBox(t *testing.T) {
 	st, _ := LoadState(w.opts.StateDir)
 	if st.State != StateError || !strings.Contains(st.LastError, "box") {
 		t.Errorf("quería error por box divergente, estado %s: %s", st.State, st.LastError)
+	}
+}
+
+// TestCycleAgainstSupervisorAPI corre un ciclo con el cliente real del
+// Supervisor contra un Core falso (httptest) y verifica las llamadas.
+func TestCycleAgainstSupervisorAPI(t *testing.T) {
+	var mu sync.Mutex
+	var calls []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls = append(calls, r.URL.Path)
+		mu.Unlock()
+		if r.Header.Get("Authorization") != "Bearer tok" {
+			http.Error(w, "401", http.StatusUnauthorized)
+			return
+		}
+		if r.URL.Path == "/core/api/config/core/check_config" {
+			_, _ = w.Write([]byte(`{"result": "valid", "errors": null}`))
+			return
+		}
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	w := newWorld(t)
+	sup := &ha.Supervisor{BaseURL: srv.URL + "/core/api", Token: "tok", HTTP: srv.Client()}
+	w.opts.Checker, w.opts.Reloader, w.opts.Notifier = sup, sup, sup
+	w.newEngine()
+	w.seedBox()
+	mu.Lock()
+	calls = nil
+	mu.Unlock()
+
+	w.devPush(map[string]string{"config/scripts.yaml": "hola:\n  sequence: [main]\n"})
+	if rep := w.sync(); rep.State != StateIdle || !rep.Reloaded {
+		t.Fatalf("= %+v", rep)
+	}
+	want := []string{
+		"/core/api/config/core/check_config",
+		"/core/api/services/homeassistant/reload_all",
+		"/core/api/events/homeassistant_config_sync",
+		"/core/api/services/persistent_notification/dismiss",
+	}
+	if strings.Join(calls, "|") != strings.Join(want, "|") {
+		t.Errorf("llamadas a HA = %v\nquería %v", calls, want)
 	}
 }
 

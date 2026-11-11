@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -31,12 +30,15 @@ func newEngine(g globalFlags, stderr io.Writer) (*engine.Engine, bool) {
 		_, _ = fmt.Fprintln(stderr, "hcs:", err)
 		return nil, false
 	}
-	checker, err := makeChecker(g.checker)
+	hac, err := makeHA(g.checker, cfg.NotifyService)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "hcs:", err)
 		return nil, false
 	}
-	e, err := engine.New(engine.Options{Config: cfg, StateDir: g.stateDir, AllowFileRemote: g.allowFileRemote, Checker: checker})
+	e, err := engine.New(engine.Options{
+		Config: cfg, StateDir: g.stateDir, AllowFileRemote: g.allowFileRemote,
+		Checker: hac.checker, Reloader: hac.reloader, Notifier: hac.notifier,
+	})
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "hcs:", err)
 		return nil, false
@@ -44,18 +46,33 @@ func newEngine(g globalFlags, stderr io.Writer) (*engine.Engine, bool) {
 	return e, true
 }
 
-func makeChecker(spec string) (ha.Checker, error) {
-	switch {
-	case spec == "" && os.Getenv("SUPERVISOR_TOKEN") != "":
-		return nil, errors.New("el checker del Supervisor llega en M7; por ahora usá --checker noop o command:'…'")
-	case spec == "", spec == "noop":
-		return ha.Noop{}, nil
-	case spec == "supervisor":
-		return nil, errors.New("el checker del Supervisor llega en M7")
-	case strings.HasPrefix(spec, "command:"):
-		return ha.CommandChecker{Command: strings.TrimPrefix(spec, "command:")}, nil
+// haClients agrupa lo que el motor necesita de Home Assistant.
+type haClients struct {
+	checker  ha.Checker
+	reloader ha.Reloader
+	notifier ha.Notifier
+}
+
+// makeHA elige los clientes de HA. Dentro de la app (hay SUPERVISOR_TOKEN)
+// todo va por el Supervisor; en local, el checker sale de --checker y reload y
+// notificaciones no hacen nada.
+func makeHA(spec, notifyService string) (haClients, error) {
+	inApp := os.Getenv("SUPERVISOR_TOKEN") != ""
+	if spec == "supervisor" || (spec == "" && inApp) {
+		s, err := ha.NewSupervisorFromEnv(notifyService)
+		if err != nil {
+			return haClients{}, err
+		}
+		return haClients{checker: s, reloader: s, notifier: s}, nil
 	}
-	return nil, fmt.Errorf("--checker %q no válido: noop | command:'<cmd>'", spec)
+	noop := ha.Noop{}
+	switch {
+	case spec == "", spec == "noop":
+		return haClients{checker: noop, reloader: noop, notifier: noop}, nil
+	case strings.HasPrefix(spec, "command:"):
+		return haClients{checker: ha.CommandChecker{Command: strings.TrimPrefix(spec, "command:")}, reloader: noop, notifier: noop}, nil
+	}
+	return haClients{}, fmt.Errorf("--checker %q no válido: supervisor | noop | command:'<cmd>'", spec)
 }
 
 func cmdInit(g globalFlags, stdout, stderr io.Writer) int {

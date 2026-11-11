@@ -329,6 +329,15 @@ Con `homeassistant_api: true` la app recibe `SUPERVISOR_TOKEN` y habla con Core 
 
 A verificar en v1: que `check_config` funcione con el token del Supervisor a través del proxy. Si no, la alternativa es `POST http://supervisor/core/check` con `hassio_api: true` y `hassio_role: homeassistant`.
 
+Comportamiento implementado (M7, `internal/ha/supervisor.go`):
+
+- **Cada ciclo que hizo algo** dispara el evento `homeassistant_config_sync` con `type`, `title`, `message` y datos extra (`state`, `paths`, `findings`), que no pueden pisar los tres primeros.
+- **Los estados que piden intervención** además crean o actualizan una sola notificación persistente (`notification_id: homeassistant_config_sync`) y, si hay `notify_service`, la mandan ahí.
+- **Un sync que vuelve a la normalidad** descarta esa notificación (`persistent_notification.dismiss`). Un ciclo sin cambios no manda nada.
+- **Timeouts:** 120 s para `check_config` (en una Raspberry Pi tarda) y 30 s para lo demás. Si falla un paso, igual se intentan los otros.
+- **Ningún error incluye el token.** Las respuestas se leen con un límite de 1 MiB.
+- **El CLI elige solo:** con `SUPERVISOR_TOKEN` en el entorno (dentro de la app) usa el Supervisor para check, reload y notificaciones. En local usa `--checker noop|command:'…'` y no recarga ni notifica.
+
 ## 11. Disparadores
 
 - **Programado:** `sync_interval_minutes` (default 5; `0` = solo manual). Si un ciclo sigue corriendo, el tick se saltea. Para que un intervalo corto no cargue el box, el escaneo solo re-hashea los archivos cuyo `mtime`, tamaño o inode cambió respecto del ciclo anterior (cache de stat en `/data/state.json`), y el fetch es un solo round-trip SSH.

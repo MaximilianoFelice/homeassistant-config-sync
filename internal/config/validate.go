@@ -21,6 +21,7 @@ type ValidateOptions struct {
 var (
 	authorRe      = regexp.MustCompile(`^[^<>\n]+ <[^<>@\s]+@[^<>\s]+>$`)
 	fingerprintRe = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	serviceRe     = regexp.MustCompile(`^[a-z0-9_]+\.[a-z0-9_]+$`)
 )
 
 // Validate devuelve todos los errores de la configuración juntos, cada uno
@@ -62,6 +63,9 @@ func (c *Config) Validate(opts ValidateOptions) error {
 	}
 	if !authorRe.MatchString(c.CommitAuthor) {
 		add("commit_author", "tiene que tener la forma 'Nombre <email>'")
+	}
+	if c.NotifyService != "" && !serviceRe.MatchString(c.NotifyService) {
+		add("notify_service", "%q tiene que ser un servicio 'dominio.servicio', p. ej. notify.mobile_app_pixel", c.NotifyService)
 	}
 	for i, fp := range c.SecretScan.Allow {
 		if !fingerprintRe.MatchString(fp) {

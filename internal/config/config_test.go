@@ -96,11 +96,12 @@ func TestValidateReportsEveryError(t *testing.T) {
 	c.DeleteGuardPercent = 0
 	c.CommitAuthor = "sin email"
 	c.SecretScan.Allow = []string{"nope"}
+	c.NotifyService = "notify/../../evil"
 	err := c.Validate(ValidateOptions{})
 	if err == nil {
 		t.Fatal("quería errores")
 	}
-	for _, field := range []string{"box_branch", "mode", "max_file_size_kb", "delete_guard_percent", "commit_author", "secret_scan.allow[0]"} {
+	for _, field := range []string{"box_branch", "mode", "max_file_size_kb", "delete_guard_percent", "commit_author", "secret_scan.allow[0]", "notify_service"} {
 		if !strings.Contains(err.Error(), field+":") {
 			t.Errorf("falta el error de %s en:\n%v", field, err)
 		}
