@@ -82,6 +82,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
+	if name == "scan-secrets" {
+		return scanSecrets(g, fs.Args(), stdout, stderr)
+	}
+
 	_, _ = fmt.Fprintf(stderr, "hcs %s: todavía no implementado\n", name)
 	return 1
 }

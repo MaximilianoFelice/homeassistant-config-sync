@@ -286,13 +286,14 @@ Corre **antes de commitear un snapshot**, sobre el contenido agregado o modifica
 
 Reglas:
 
-- Las reglas por defecto de gitleaks (tokens de proveedores, claves privadas, URLs con credenciales), embebidas como librería.
+- Las reglas por defecto de gitleaks (tokens de proveedores, claves privadas, `generic-api-key`), embebidas como librería (v8.30.1; el binario queda en ~9 MB para aarch64, sin símbolos). Su logger se apaga para que nunca escriba contenido.
 - Reglas propias de HA:
   - clave YAML que matchea `password|passwd|token|api_key|apikey|secret|client_secret|access_token|private_key|bearer` con un valor escalar literal (no `!secret`, no `!env_var`, no plantilla) → hallazgo;
   - `webhook_id` literal → advertencia (cualquiera con la URL dispara la automatización). Configurable para tratarla como hallazgo;
   - URL con `user:pass@`.
 - Los hallazgos se reportan como `path:línea:regla` y **nunca incluyen el valor**, ni en logs ni en la API.
-- Excepciones: lista de fingerprints (`sha256(path + regla + línea normalizada)`) en las opciones de la app (`secret_scan.allow`). Una edición de esa línea invalida la excepción.
+- Excepciones: lista de fingerprints (`sha256(path + regla + línea normalizada)`) en las opciones de la app (`secret_scan.allow`). Una edición de esa línea o mover el archivo invalida la excepción; mover la línea dentro del archivo, no.
+- `hcs scan-secrets PATH...` corre el escáner suelto (sirve como pre-commit hook en local). Sale con 1 si hay hallazgos bloqueantes.
 
 ## 9. Autenticación con el remoto
 

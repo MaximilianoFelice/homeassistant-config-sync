@@ -205,7 +205,7 @@ Una secuencia aleatoria (semilla registrada) de operaciones: editar, crear o bor
 
 | Riesgo | Cuándo se valida |
 |---|---|
-| API de librería de gitleaks inestable o pesada en el binario | M5 (plan B: solo sus reglas). |
+| API de librería de gitleaks inestable o pesada en el binario | Resuelto en M5: `detect.Detect(Fragment)` alcanza y el binario aarch64 queda en ~9 MB. Costo: ~60 dependencias indirectas. Plan B si molesta: vendorizar solo sus reglas. |
 | `check_config` vía proxy del Supervisor con `SUPERVISOR_TOKEN` | Antes de v1, con una app mínima en `/addons`. |
 | `merge-tree --write-tree` y su salida de conflictos parseable | M3 (se usa `-z --name-only`). |
 | Tiempo de `check_config` en una Raspberry Pi | v1 (timeout configurable, default 120 s). |
