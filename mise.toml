@@ -14,6 +14,10 @@ run = "go test -race ./..."
 description = "go vet + golangci-lint"
 run = ["go vet ./...", "golangci-lint run"]
 
+[tasks.fuzz]
+description = "Fuzzing de los parsers y matchers (fuera del ciclo normal)"
+run = "go test ./internal/paths -run '^$' -fuzz FuzzClassifyRepoPath -fuzztime 60s"
+
 [tasks.check]
 description = "Lo que tiene que pasar antes de cada commit"
 depends = ["lint", "test", "build"]

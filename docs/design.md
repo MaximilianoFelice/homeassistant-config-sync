@@ -86,10 +86,12 @@ mappings:
   - repo: config
     box: /homeassistant
     include: [...]      # ver §5
+    push_only: [...]
     exclude: [...]
   - repo: app_configs
     box: /addon_configs
     include: []         # vacío por defecto: hay que elegir apps explícitamente
+    push_only: []
     exclude: []
 ```
 
@@ -108,7 +110,7 @@ La whitelist vive **del lado del box** (opciones de la app), nunca en el repo. S
 Un path es gestionado si y solo si:
 
 1. está bajo el `box` de un mapeo,
-2. matchea algún glob de `include` (sintaxis doublestar: `*`, `**`, `?`, `[...]`),
+2. matchea algún glob de `include` o de `push_only` (sintaxis doublestar: `*`, `**`, `?`, `[...]`; relativos a la raíz del mapeo),
 3. no matchea ningún glob de `exclude`,
 4. no matchea la **denylist dura**,
 5. no es symlink, socket ni dispositivo (los symlinks se ignoran, nunca se siguen),
@@ -116,21 +118,29 @@ Un path es gestionado si y solo si:
 
 Los puntos 5 y 6 producen avisos en "pendientes/ignorados", no errores.
 
-Cada regla de `include` puede llevar una dirección:
+La dirección sale de la lista que matchea:
 
-- `both` (default): se sincroniza en las dos direcciones.
-- `push`: solo box → repo. Lo que llegue desde `main` para ese path se ignora y se reporta como "cambio entrante no aplicable".
+- `include`: se sincroniza en las dos direcciones.
+- `push_only`: solo box → repo. Lo que llegue desde `main` para ese path se ignora y se reporta como "cambio entrante no aplicable". Si un path matchea las dos listas, gana `push_only`.
+
+Son tres listas de strings (y no reglas con un campo de dirección) para que el esquema de opciones del Supervisor las pueda validar.
+
+Además, todo path que llega desde el repo tiene que ser relativo y limpio: sin `..`, `.`, componentes vacíos, barras invertidas, bytes de control ni componentes `.git`. Si no, se descarta como `invalid_path` antes de mirar la whitelist. Es la barrera contra un `main` que intente escribir fuera del mapeo.
 
 ### Denylist dura (no se puede desactivar)
 
+Se evalúa en cualquier nivel de profundidad y sin distinguir mayúsculas (`Secrets.YAML` también cae):
+
 ```
-**/secrets.yaml
-**/*.db  **/*.db-shm  **/*.db-wal  **/*.sqlite*
-.storage/auth*  .storage/core.config_entries  .storage/http*  .storage/cloud
-.cloud/**
-**/id_rsa*  **/id_ed25519*  **/id_ecdsa*  **/*.pem  **/*.key  **/*.p12
+**/secrets.yaml  **/secrets.yml
+**/*.db  **/*.db-shm  **/*.db-wal  **/*.db-journal  **/*.sqlite*
+**/.storage/auth*  **/.storage/core.config_entries  **/.storage/http*  **/.storage/cloud
+**/.cloud/**  **/.ssh/**
+**/id_rsa*  **/id_dsa*  **/id_ecdsa*  **/id_ed25519*  **/*.pem  **/*.key  **/*.p12  **/*.pfx
 **/*.log  **/*.log.*
 ```
+
+La fuente de verdad es `paths.HardDeny` en el código.
 
 ### Defaults del mapeo `config/`
 
@@ -141,7 +151,8 @@ include:
   - "custom_templates/**/*.jinja"
   - "python_scripts/**/*.py"
   - "pyscript/**/*.py"
-  - { path: ".storage/lovelace*", direction: push }
+push_only:
+  - ".storage/lovelace*"
 exclude:
   - ".cache/**"
   - "deps/**"
@@ -155,7 +166,7 @@ exclude:
 
 Como es una whitelist, `.storage` queda afuera salvo lo que se incluye explícitamente (`lovelace*`): no hace falta excluirlo. `exclude` siempre gana sobre `include`, y la denylist dura gana sobre los dos.
 
-**Por qué `.storage/lovelace*` es `push`:** HA tiene los dashboards en memoria y reescribe esos JSON cuando se guardan desde la UI. Escribirlos desde git con HA corriendo no se ve hasta un restart, y el próximo guardado desde la UI los pisa. Versionarlos sí sirve (historial, diffs). Bajarlos queda como opción futura con aviso de "requiere restart".
+**Por qué `.storage/lovelace*` es `push_only`:** HA tiene los dashboards en memoria y reescribe esos JSON cuando se guardan desde la UI. Escribirlos desde git con HA corriendo no se ve hasta un restart, y el próximo guardado desde la UI los pisa. Versionarlos sí sirve (historial, diffs). Bajarlos queda como opción futura con aviso de "requiere restart".
 
 ### Guards de seguridad del escaneo
 

@@ -209,3 +209,4 @@ Una secuencia aleatoria (semilla registrada) de operaciones: editar, crear o bor
 | `check_config` vía proxy del Supervisor con `SUPERVISOR_TOKEN` | Antes de v1, con una app mínima en `/addons`. |
 | `merge-tree --write-tree` y su salida de conflictos parseable | M3 (se usa `-z --name-only`). |
 | Tiempo de `check_config` en una Raspberry Pi | v1 (timeout configurable, default 120 s). |
+| Que el esquema de opciones del Supervisor acepte `mappings` (lista de objetos con listas de strings adentro) | v1. Plan B: los mapeos van en un YAML aparte dentro del `addon_config` de la app, con el mismo esquema que lee `config.Load`. |
