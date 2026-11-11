@@ -249,6 +249,15 @@ No hay estrategia automática (`prefer_main` / `prefer_box`) en v0/v1. Queda com
 
 `mode: bidirectional` (default) | `push_only` (no aplica nunca desde `main`) | `pull_only` (no snapshotea; útil para un box de staging).
 
+- `push_only` solo publica la rama `box`; `main` queda para los humanos y el box nunca la lee.
+- `pull_only` queda fuera del v0: el motor lo rechaza con un error explícito. Falta definir qué hacer con las ediciones locales (¿se descartan?) antes de implementarlo.
+
+### Otros casos del ciclo (implementados en M6)
+
+- **Alguien pusheó a `box`:** si `origin/box` no es ancestro del `box` local, el motor frena con error (`box` diverge) y no pisa nada. `box` es solo del motor.
+- **Reintentos:** si el disco cambia entre el snapshot y el apply (CAS) o `main` avanza entre el fetch y el push, el ciclo vuelve a empezar, hasta 3 veces por ejecución.
+- **Códigos de salida del CLI:** `0` = `idle`; `1` = estado que pide intervención (conflicto, rechazo, secretos, bootstrap, snapshot frenado); `2` = error.
+
 ## 7. Aplicar al box, check, rollback y reloads
 
 ### Apply

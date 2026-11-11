@@ -37,6 +37,12 @@ type globalFlags struct {
 	stateDir        string
 	checker         string
 	allowFileRemote bool
+	json            bool
+
+	// Solo sync/plan.
+	dryRun          bool
+	acceptBootstrap bool
+	allowMassDelete bool
 }
 
 func (g *globalFlags) register(fs *flag.FlagSet) {
@@ -44,6 +50,10 @@ func (g *globalFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&g.stateDir, "state-dir", "/data", "directorio de estado del motor")
 	fs.StringVar(&g.checker, "checker", "", "supervisor | noop | command:'<cmd>' (default: supervisor si hay SUPERVISOR_TOKEN, si no noop)")
 	fs.BoolVar(&g.allowFileRemote, "allow-file-remote", false, "permite remotos file:// (solo v0 y tests)")
+	fs.BoolVar(&g.json, "json", false, "salida en JSON (status, sync, plan)")
+	fs.BoolVar(&g.dryRun, "dry-run", false, "sync: calcular sin commitear, aplicar ni pushear")
+	fs.BoolVar(&g.acceptBootstrap, "accept-bootstrap", false, "sync: confirmar el primer merge de box en un main existente")
+	fs.BoolVar(&g.allowMassDelete, "allow-mass-delete", false, "sync: confirmar un borrado masivo")
 }
 
 func main() {
@@ -82,8 +92,19 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	if name == "scan-secrets" {
+	switch name {
+	case "scan-secrets":
 		return scanSecrets(g, fs.Args(), stdout, stderr)
+	case "init":
+		return cmdInit(g, stdout, stderr)
+	case "deploy-key":
+		return cmdDeployKey(g, stdout, stderr)
+	case "status":
+		return cmdStatus(g, stdout, stderr)
+	case "sync":
+		return cmdSync(g, g.dryRun, stdout, stderr)
+	case "plan":
+		return cmdSync(g, true, stdout, stderr)
 	}
 
 	_, _ = fmt.Fprintf(stderr, "hcs %s: todavía no implementado\n", name)

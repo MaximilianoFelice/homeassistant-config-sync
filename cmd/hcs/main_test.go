@@ -19,9 +19,10 @@ func TestRun(t *testing.T) {
 		{"--help", []string{"--help"}, 0, "Uso: hcs", ""},
 		{"version", []string{"version"}, 0, "hcs dev", ""},
 		{"desconocido", []string{"bogus"}, 2, "", `comando desconocido "bogus"`},
-		{"subcomando sin implementar", []string{"sync"}, 1, "", "hcs sync: todavía no implementado"},
+		{"subcomando sin implementar", []string{"serve"}, 1, "", "hcs serve: todavía no implementado"},
 		{"scan-secrets sin paths", []string{"scan-secrets"}, 2, "", "uso: hcs scan-secrets"},
-		{"flags globales", []string{"plan", "--state-dir", "/tmp/x", "--allow-file-remote"}, 1, "", "todavía no implementado"},
+		{"sync sin config", []string{"sync", "--state-dir", "/tmp/x", "--allow-file-remote"}, 2, "", "falta --config"},
+		{"checker inválido", []string{"plan", "--config", "testdata/none.yaml", "--checker", "bogus"}, 2, "", "hcs:"},
 		{"help de subcomando", []string{"sync", "-h"}, 0, "", "-state-dir"},
 		{"flag inválido", []string{"sync", "--nope"}, 2, "", "flag provided but not defined"},
 	}

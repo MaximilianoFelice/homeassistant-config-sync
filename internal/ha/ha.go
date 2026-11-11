@@ -26,6 +26,45 @@ func (Noop) CheckConfig(context.Context) (CheckResult, error) {
 	return CheckResult{Valid: true}, nil
 }
 
+// Reloader recarga la config YAML de Home Assistant sin reiniciar.
+type Reloader interface {
+	ReloadAll(ctx context.Context) error
+}
+
+// Tipos de evento (design.md §10). Coinciden con los estados del motor más
+// sync_finished.
+const (
+	EventSyncFinished   = "sync_finished"
+	EventConflict       = "conflict"
+	EventRejected       = "rejected"
+	EventBlockedSecrets = "blocked_secrets"
+	EventBootstrap      = "bootstrap_review"
+	EventSuspicious     = "suspicious_snapshot"
+	EventError          = "error"
+)
+
+// Event es lo que el motor le cuenta a Home Assistant al terminar un ciclo.
+type Event struct {
+	Type    string         `json:"type"`
+	Title   string         `json:"title"`
+	Message string         `json:"message"`
+	Data    map[string]any `json:"data,omitempty"`
+	// Persistent indica que además del evento conviene una notificación
+	// persistente (los estados que piden que el usuario haga algo).
+	Persistent bool `json:"persistent"`
+}
+
+// Notifier publica eventos y notificaciones en Home Assistant.
+type Notifier interface {
+	Notify(ctx context.Context, ev Event) error
+}
+
+// ReloadAll implementa Reloader sin hacer nada.
+func (Noop) ReloadAll(context.Context) error { return nil }
+
+// Notify implementa Notifier sin hacer nada.
+func (Noop) Notify(context.Context, Event) error { return nil }
+
 // CheckerFunc adapta una función a Checker (tests y checker por comando).
 type CheckerFunc func(ctx context.Context) (CheckResult, error)
 

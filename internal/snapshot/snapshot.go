@@ -65,6 +65,9 @@ type Options struct {
 	// modificado. Si devuelve error no se escribe ni se commitea nada (acá
 	// se engancha el escáner de secretos en M5).
 	BeforeCommit func(ctx context.Context, changes []Change, contents map[string][]byte) error
+	// DryRun calcula los cambios y corre BeforeCommit, pero no escribe
+	// objetos ni mueve la rama.
+	DryRun bool
 }
 
 // Result es el resultado de un snapshot.
@@ -132,6 +135,9 @@ func Take(ctx context.Context, repo *gitx.Repo, opts Options) (*Result, error) {
 		if err := opts.BeforeCommit(ctx, changes, contents); err != nil {
 			return res, err
 		}
+	}
+	if opts.DryRun {
+		return res, nil
 	}
 
 	updates := make([]gitx.IndexUpdate, 0, len(changes))
