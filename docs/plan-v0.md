@@ -89,7 +89,7 @@ Cada hito termina con tests en verde y su commit.
 |---|---|---|---|
 | M0 | Scaffold | `go.mod`, `cmd/hcs` con subcomandos vacíos, tasks de mise (`test`, `lint`), golangci-lint fijado en `mise.toml`. | `go vet`, lint, `hcs --help`. |
 | M1 | Config y paths | Esquema, defaults, validación de la URL (solo SSH), mapeos, whitelist, denylist, dirección. | Tablas de matcheo (incluye `.storage/lovelace*`, `esphome/secrets.yaml`, `custom_components`); fuzz del matcher. |
-| M2 | gitx + snapshot | Entorno git endurecido, repo bare, índice temporal, commit en `box` que preserva lo no gestionado, guards (raíz vacía, borrado masivo, tamaño, binarios, symlinks, lecturas inestables). | Snapshot idempotente (2 corridas = 1 commit); README del repo preservado; guards. |
+| M2 | gitx + snapshot | Entorno git endurecido, repo bare, índice temporal, commit en `box` que preserva lo no gestionado, guards (raíz vacía, borrado masivo, tamaño, binarios, symlinks, lecturas inestables), cache de stat para no re-hashear lo que no cambió (el intervalo default es 5 min). | Snapshot idempotente (2 corridas = 1 commit); README del repo preservado; guards; la cache no esconde una edición que conserva el tamaño. |
 | M3 | Merge | Casos ancestro/fast-forward, `merge-tree`, conflictos con lista de paths, orden de padres. | Escenarios de merge (ver catálogo). |
 | M4 | Apply | Diff B→R filtrado por whitelist y dirección, pre-check YAML/JSON, write-ahead, CAS, escritura atómica, borrados, rollback, recuperación al arrancar. | Inyección de fallas entre pasos; edición concurrente durante el apply. |
 | M5 | Secretos | gitleaks embebido + reglas de HA; bloqueo antes del commit; fingerprints. | Corpus de positivos y negativos; ningún valor en logs ni en la salida. |

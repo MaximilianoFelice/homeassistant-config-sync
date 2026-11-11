@@ -297,7 +297,7 @@ A verificar en v1: que `check_config` funcione con el token del Supervisor a tra
 
 ## 11. Disparadores
 
-- **Programado:** `sync_interval_minutes` (default 15; `0` = solo manual). Si un ciclo sigue corriendo, el tick se saltea.
+- **Programado:** `sync_interval_minutes` (default 5; `0` = solo manual). Si un ciclo sigue corriendo, el tick se saltea. Para que un intervalo corto no cargue el box, el escaneo solo re-hashea los archivos cuyo `mtime`, tamaño o inode cambió respecto del ciclo anterior (cache de stat en `/data/state.json`), y el fetch es un solo round-trip SSH.
 - **Manual:**
   - v1: `stdin: true`, así que la acción `hassio.addon_stdin` con `{"input": "sync"}` dispara un ciclo desde una automatización o un botón de dashboard, sin UI propia;
   - API: `POST /api/v1/sync`;
@@ -348,7 +348,7 @@ options:
   main_branch: main
   box_branch: box
   mode: bidirectional
-  sync_interval_minutes: 15
+  sync_interval_minutes: 5
   reload: auto
   restart: never
   commit_author: "Home Assistant <ha@box.local>"
@@ -408,10 +408,21 @@ Lo que este proyecto agrega: sync real en las dos direcciones con merge de 3 ví
 
 > Fuente de la comparación: un relevamiento de noviembre de 2026. Conviene revalidarla antes de publicar v2.
 
-## 17. Preguntas abiertas
+## 17. Decisiones tomadas (2026-11-11)
 
-1. ~~Licencia~~: MIT (decidido 2026-11-11). El repo arranca privado y se hace público cuando haya código.
-2. Nombre del slug (`homeassistant_config_sync`) y del binario (`hcs`).
-3. Default de `sync_interval_minutes` (15) y de `mode` (`bidirectional`).
-4. Si `custom_components/**` debería ser opt-in (como está) o directamente imposible de gestionar.
-5. Estructura del repo cuando lleguen v2 y v3: app (`repository.yaml` + `homeassistant_config_sync/`) e integración (`custom_components/` + `hacs.json`) en el mismo repo o en dos.
+1. **Licencia:** MIT. El repo arranca privado y se hace público cuando haya código.
+2. **Nombres:** slug `homeassistant_config_sync`, binario `hcs`.
+3. **Defaults:** `sync_interval_minutes: 5`, `mode: bidirectional`.
+4. **`custom_components/**`:** opt-in, fuera por defecto. Quien lo incluya asume que escribir a `main` es ejecutar código en HA (§14).
+5. **Un solo repo** para el motor, la app y la integración:
+
+   ```
+   repository.yaml                      repo de apps (v2)
+   homeassistant_config_sync/           carpeta de la app: config.yaml, Dockerfile, DOCS.md (v1)
+   custom_components/homeassistant_config_sync/   integración (v3)
+   hacs.json                            (v3)
+   cmd/hcs/, internal/, go.mod          el motor (v0)
+   docs/
+   ```
+
+   El Supervisor solo mira `repository.yaml` y las carpetas con `config.yaml`; HACS solo mira `custom_components/` y `hacs.json`. El módulo Go en la raíz no molesta a ninguno de los dos.
