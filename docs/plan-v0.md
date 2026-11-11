@@ -201,6 +201,30 @@ Una secuencia aleatoria (semilla registrada) de operaciones: editar, crear o bor
 - El v0 nunca escribe en el box real ni en GitHub.
 - No se usa el agente SSH ni las claves del usuario: el motor fuerza `IdentityAgent=none` y su propia deploy key. Una prueba opcional contra un repo descartable de GitHub requiere que el usuario cree el repo y cargue la deploy key; se hace solo con su OK.
 
+## Resultado del E2E (M9, 2026-11-11)
+
+`scripts/fetch-box-copy.sh` trae la copia del box por `ssh <host>` en modo lectura. En el add-on de SSH las configs de apps están en `/app_configs`, no en `/addon_configs`. Lo sensible se excluye en el propio box:
+
+- la denylist dura;
+- todos los `.git` (un clon puede tener credenciales en `.git/config`);
+- `.storage` salvo `lovelace*`;
+- las bases de datos, `.cache`, logs y backups.
+
+Un chequeo final aborta si llegó algo de la denylist.
+
+`scripts/e2e-sandbox.sh` corre 13 pasos sobre una copia de trabajo limpia (repetible). Siembra un "GitHub" local con una config de ejemplo en layout de monorepo y verifica:
+
+| Paso | Resultado |
+|---|---|
+| plan / bootstrap contra un repo existente | Muestra exactamente en qué difiere el box del repo existente. |
+| aceptar bootstrap, no-op | `main == box`, segundo sync sin push. |
+| local → box, box → main | OK. |
+| conflicto + resolución en local | El box no se toca durante el conflicto; la resolución llega. |
+| YAML roto desde main | `rejected` por el pre-check, el box intacto; revertir destraba. |
+| el mismo box contra un repo vacío | `blocked_secrets` señalando el YAML de ESPHome con la clave escrita a mano. Nada pusheado, ni commits locales. |
+
+Las dos corridas seguidas dieron `E2E OK`. Lo que no cubre: `check_config` real (corrió con `--checker noop`) y SSH contra GitHub (el remoto es `file://`). Las dos cosas son del v1.
+
 ## Riesgos y cosas a validar temprano
 
 | Riesgo | Cuándo se valida |

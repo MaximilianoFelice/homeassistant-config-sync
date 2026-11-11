@@ -293,6 +293,8 @@ No hay estrategia automática (`prefer_main` / `prefer_box`) en v0/v1. Queda com
 
 Corre **antes de commitear un snapshot**, sobre el contenido agregado o modificado. Si encuentra algo, el snapshot no se commitea (para que el secreto nunca quede ni en el repo local) y el estado pasa a `blocked_secrets`.
 
+**Solo mira lo que el box cambia.** Un secreto que ya está en `main` con el mismo contenido no frena el sync: ya se filtró, y bloquear no protege nada. Para auditar lo que ya está en el repo, `hcs scan-secrets` sobre un clon. Esto se vio en el E2E del M9: contra un repo existente, los secretos de ESPHome que ya estaban trackeados no frenaron; contra un repo vacío o limpio, sí.
+
 Reglas:
 
 - Las reglas por defecto de gitleaks (tokens de proveedores, claves privadas, `generic-api-key`), embebidas como librería (v8.30.1; el binario queda en ~9 MB para aarch64, sin símbolos). Su logger se apaga para que nunca escriba contenido.
