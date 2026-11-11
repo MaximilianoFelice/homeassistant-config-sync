@@ -5,9 +5,12 @@ package testkit
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/gitx"
 )
@@ -74,6 +77,83 @@ func Tree(t testing.TB, r *gitx.Repo, ref string) map[string]string {
 			t.Fatal(err)
 		}
 		out[e.Path] = string(b)
+	}
+	return out
+}
+
+// Del marca un borrado en Commit.
+const Del = "\x00borrar"
+
+// Commit crea un commit sobre parent ("" = commit raíz) aplicando changes
+// (path → contenido, o Del para borrar). Un contenido con el prefijo "x:" se
+// guarda sin el prefijo y con modo ejecutable.
+func Commit(t testing.TB, r *gitx.Repo, parent string, changes map[string]string) string {
+	t.Helper()
+	ctx := context.Background()
+	base := ""
+	if parent != "" {
+		var err error
+		if base, err = r.TreeOf(ctx, parent); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var ups []gitx.IndexUpdate
+	for p, c := range changes {
+		if c == Del {
+			ups = append(ups, gitx.IndexUpdate{Path: p})
+			continue
+		}
+		mode := "100644"
+		if rest, ok := strings.CutPrefix(c, "x:"); ok {
+			mode, c = "100755", rest
+		}
+		oid, err := r.WriteBlob(ctx, []byte(c))
+		if err != nil {
+			t.Fatal(err)
+		}
+		ups = append(ups, gitx.IndexUpdate{Path: p, Mode: mode, OID: oid})
+	}
+	tree, err := r.BuildTree(ctx, base, ups)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commitSeq++
+	id, _ := gitx.ParseIdent("Test <t@example.invalid>", time.Unix(1700000000+commitSeq, 0))
+	var parents []string
+	if parent != "" {
+		parents = []string{parent}
+	}
+	c, err := r.CommitTree(ctx, tree, parents, "test\n", id, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+var commitSeq int64
+
+// Disk devuelve los archivos regulares bajo root como mapa path relativo
+// ('/') → contenido. Los symlinks y directorios no aparecen.
+func Disk(t testing.TB, root string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(root, p)
+		out[filepath.ToSlash(rel)] = string(b)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 	return out
 }

@@ -71,6 +71,9 @@ type Mapping struct {
 	PushOnly []string `yaml:"push_only"`
 	// Exclude saca paths de Include y de PushOnly.
 	Exclude []string `yaml:"exclude"`
+	// Check indica si un cambio aplicado en este mapeo tiene que pasar el
+	// check_config de Home Assistant (design.md §7).
+	Check bool `yaml:"check"`
 }
 
 // SecretScan configura el escáner de secretos (design.md §8).
@@ -104,8 +107,9 @@ func Default() *Config {
 func DefaultMappings() []Mapping {
 	return []Mapping{
 		{
-			Repo: "config",
-			Box:  "/homeassistant",
+			Repo:  "config",
+			Box:   "/homeassistant",
+			Check: true,
 			Include: []string{
 				"**/*.yaml",
 				"**/*.yml",

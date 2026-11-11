@@ -262,7 +262,16 @@ No hay estrategia automática (`prefer_main` / `prefer_box`) en v0/v1. Queda com
 
 **Ventana de riesgo:** `check_config` valida el directorio vivo, así que los archivos nuevos están en disco unos segundos antes del rollback. HA no relee YAML por su cuenta (salvo integraciones puntuales que vigilan archivos, como pyscript), así que el riesgo es bajo. Un check en un directorio de staging necesitaría la imagen de HA Core dentro de la app, que pesa demasiado. Se documenta y se descarta para v1.
 
-**Recuperación tras un corte:** si al arrancar hay un `applying` pendiente, se compara cada path contra `R` y `B`. Si todos están como en `R`, `box := R`. Si todos están como en `B`, se descarta. Si es una mezcla, se hace rollback a `B` con CAS.
+**Recuperación tras un corte:** el journal tiene dos fases: `writing` (escribiendo o validando) y `checked` (el disco está en `R` y el check pasó; falta mover `box`). Al arrancar:
+
+- en fase `checked` y con todos los paths como en `R`: se confirma `R` (`box := R`);
+- en cualquier otro caso se vuelve a `B`: un `R` que no llegó a validarse nunca se da por bueno, aunque haya quedado entero en disco. Solo se revierten los paths que quedaron como en `R`; si alguien editó un path después del corte, no se pisa y entra en el próximo snapshot.
+
+**Otros resguardos del apply:**
+
+- Ningún componente entre la raíz del mapeo y el archivo puede ser un symlink, para no escribir fuera del mapeo.
+- Un directorio que pasa a ser archivo solo se reemplaza si quedó vacío después de los borrados; si tiene archivos no gestionados, falla y se hace rollback.
+- Cada mapeo tiene `check: bool` (default `true` para `config/`, `false` para `app_configs/`): define si un cambio ahí exige `check_config`.
 
 ### Reloads y restart
 
