@@ -82,11 +82,11 @@ func Merge(ctx context.Context, repo *gitx.Repo, box, main string, opts Options)
 	}
 	res := &Result{Box: box, Main: main}
 
-	switch {
-	case main == "":
+	switch main {
+	case "":
 		res.Kind, res.R = FastForwardMain, box
 		return res, nil
-	case main == box:
+	case box:
 		res.Kind, res.R = UpToDate, box
 		return res, nil
 	}
