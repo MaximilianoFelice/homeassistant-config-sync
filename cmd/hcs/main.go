@@ -43,6 +43,11 @@ type globalFlags struct {
 	dryRun          bool
 	acceptBootstrap bool
 	allowMassDelete bool
+
+	// Solo serve.
+	listen      string
+	stdin       bool
+	syncOnStart bool
 }
 
 func (g *globalFlags) register(fs *flag.FlagSet) {
@@ -54,6 +59,9 @@ func (g *globalFlags) register(fs *flag.FlagSet) {
 	fs.BoolVar(&g.dryRun, "dry-run", false, "sync: calcular sin commitear, aplicar ni pushear")
 	fs.BoolVar(&g.acceptBootstrap, "accept-bootstrap", false, "sync: confirmar el primer merge de box en un main existente")
 	fs.BoolVar(&g.allowMassDelete, "allow-mass-delete", false, "sync: confirmar un borrado masivo")
+	fs.StringVar(&g.listen, "listen", "127.0.0.1:8099", "serve: dirección de la API")
+	fs.BoolVar(&g.stdin, "stdin", false, "serve: aceptar comandos por stdin (\"sync\"), como hassio.addon_stdin")
+	fs.BoolVar(&g.syncOnStart, "sync-on-start", false, "serve: correr un sync al arrancar")
 }
 
 func main() {
@@ -105,6 +113,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdSync(g, g.dryRun, stdout, stderr)
 	case "plan":
 		return cmdSync(g, true, stdout, stderr)
+	case "serve":
+		return cmdServe(g, stdout, stderr)
 	}
 
 	_, _ = fmt.Fprintf(stderr, "hcs %s: todavía no implementado\n", name)

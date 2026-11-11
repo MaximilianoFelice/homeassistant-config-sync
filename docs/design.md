@@ -367,6 +367,15 @@ Autenticación:
 - Las requests por ingress llegan desde el proxy del Supervisor (`172.30.32.2`) y se aceptan.
 - El resto necesita `Authorization: Bearer <token>`, con el token generado en `/data/api_token`. En v3 la app lo entrega a la integración vía Supervisor discovery (`discovery:` en `config.yaml` + `hassio_api`).
 
+Implementado en M8 (`internal/api`, `hcs serve`):
+
+- Todos los endpoints de la tabla salvo `deploy-key/rotate` y `events` (SSE), que quedan para v2.
+- **Un solo ciclo a la vez:** si ya hay uno corriendo, `POST /sync` y `GET /pending` responden `409` con el job en curso. El scheduler se saltea el tick.
+- **`GET /pending`** es un dry-run sincrónico.
+- **Un apagado (SIGTERM)** deja de aceptar requests y espera a que termine el ciclo en curso. Los ciclos nunca se cancelan a mitad de camino; tienen un tope de 15 min.
+- **`hcs serve`** acepta `--listen` (default `127.0.0.1:8099`; la app usa `0.0.0.0:8099`), `--stdin` (comandos de `hassio.addon_stdin`: `"sync"`) y `--sync-on-start`.
+- **Token:** `hcs init` genera `api_token`; init nunca lo rota. Se compara en tiempo constante.
+
 La integración HACS de v3 expone: sensor de estado, sensores de último sync y de cambios pendientes, `binary_sensor` de conflicto, `button` "Sincronizar ahora" y disparadores de dispositivo a partir de los eventos.
 
 ## 13. Configuración de la app (borrador de `config.yaml`)

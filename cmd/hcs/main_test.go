@@ -19,7 +19,7 @@ func TestRun(t *testing.T) {
 		{"--help", []string{"--help"}, 0, "Uso: hcs", ""},
 		{"version", []string{"version"}, 0, "hcs dev", ""},
 		{"desconocido", []string{"bogus"}, 2, "", `comando desconocido "bogus"`},
-		{"subcomando sin implementar", []string{"serve"}, 1, "", "hcs serve: todavía no implementado"},
+		{"serve sin config", []string{"serve"}, 2, "", "falta --config"},
 		{"scan-secrets sin paths", []string{"scan-secrets"}, 2, "", "uso: hcs scan-secrets"},
 		{"sync sin config", []string{"sync", "--state-dir", "/tmp/x", "--allow-file-remote"}, 2, "", "falta --config"},
 		{"checker inválido", []string{"plan", "--config", "testdata/none.yaml", "--checker", "bogus"}, 2, "", "hcs:"},

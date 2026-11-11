@@ -20,20 +20,20 @@ const (
 	exitError     = 2
 )
 
-func newEngine(g globalFlags, stderr io.Writer) (*engine.Engine, bool) {
+func newEngine(g globalFlags, stderr io.Writer) (*engine.Engine, *config.Config, bool) {
 	if g.config == "" {
 		_, _ = fmt.Fprintln(stderr, "hcs: falta --config")
-		return nil, false
+		return nil, nil, false
 	}
 	cfg, err := config.Load(g.config)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "hcs:", err)
-		return nil, false
+		return nil, nil, false
 	}
 	hac, err := makeHA(g.checker, cfg.NotifyService)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "hcs:", err)
-		return nil, false
+		return nil, nil, false
 	}
 	e, err := engine.New(engine.Options{
 		Config: cfg, StateDir: g.stateDir, AllowFileRemote: g.allowFileRemote,
@@ -41,9 +41,9 @@ func newEngine(g globalFlags, stderr io.Writer) (*engine.Engine, bool) {
 	})
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "hcs:", err)
-		return nil, false
+		return nil, nil, false
 	}
-	return e, true
+	return e, cfg, true
 }
 
 // haClients agrupa lo que el motor necesita de Home Assistant.
@@ -76,7 +76,7 @@ func makeHA(spec, notifyService string) (haClients, error) {
 }
 
 func cmdInit(g globalFlags, stdout, stderr io.Writer) int {
-	e, ok := newEngine(g, stderr)
+	e, _, ok := newEngine(g, stderr)
 	if !ok {
 		return exitError
 	}
@@ -135,7 +135,7 @@ func cmdStatus(g globalFlags, stdout, stderr io.Writer) int {
 }
 
 func cmdSync(g globalFlags, dryRun bool, stdout, stderr io.Writer) int {
-	e, ok := newEngine(g, stderr)
+	e, _, ok := newEngine(g, stderr)
 	if !ok {
 		return exitError
 	}

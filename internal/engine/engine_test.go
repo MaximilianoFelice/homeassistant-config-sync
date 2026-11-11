@@ -744,4 +744,14 @@ func TestInitIsIdempotentAndWritesKeys(t *testing.T) {
 	if !strings.Contains(string(kh), "github.com ssh-ed25519 ") {
 		t.Error("known_hosts sin GitHub")
 	}
+	tok, err := APIToken(w.opts.StateDir)
+	if err != nil || len(tok) != 64 {
+		t.Errorf("api_token = %q, %v", tok, err)
+	}
+	if _, err := w.eng.Init(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if tok2, _ := APIToken(w.opts.StateDir); tok2 != tok {
+		t.Error("init de nuevo no puede rotar el token")
+	}
 }

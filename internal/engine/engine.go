@@ -150,6 +150,9 @@ func (e *Engine) Init(ctx context.Context) (*InitResult, error) {
 	if err := writeKnownHosts(e.path("ssh", "known_hosts"), e.cfg.SSHKnownHosts); err != nil {
 		return nil, err
 	}
+	if err := ensureAPIToken(e.path("api_token")); err != nil {
+		return nil, err
+	}
 	// Reabrir con la clave recién creada.
 	e.repo = gitx.Open(e.path("repo.git"), gitx.Options{
 		AllowFile: e.allowFile, SSHKey: e.path("ssh", "id_ed25519"), KnownHosts: e.path("ssh", "known_hosts"),

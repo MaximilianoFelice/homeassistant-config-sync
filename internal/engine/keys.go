@@ -3,6 +3,7 @@ package engine
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"io/fs"
@@ -67,6 +68,30 @@ func ensureDeployKey(dir string) (pub string, created bool, err error) {
 func writeKnownHosts(path string, extra []string) error {
 	lines := append(append([]string{}, githubKnownHosts...), extra...)
 	return os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+}
+
+// ensureAPIToken genera el token de la API HTTP (32 bytes al azar, en hex)
+// si no existe.
+func ensureAPIToken(path string) error {
+	if _, err := os.Stat(path); err == nil {
+		return nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(hex.EncodeToString(b)+"\n"), 0o600)
+}
+
+// APIToken devuelve el token de la API HTTP de un state dir inicializado.
+func APIToken(stateDir string) (string, error) {
+	b, err := os.ReadFile(filepath.Join(stateDir, "api_token"))
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(b)), nil
 }
 
 // DeployKey devuelve la clave pública de un state dir ya inicializado.
