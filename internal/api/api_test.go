@@ -277,6 +277,30 @@ func TestDeployKeyEndpoint(t *testing.T) {
 	}
 }
 
+func TestRotateKeyEndpoint(t *testing.T) {
+	s, dir := newServer(t, &fake{}, "")
+	if rec, _ := do(t, s.Handler(), "POST", "/api/v1/deploy-key/rotate", "", true); rec.Code != http.StatusInternalServerError {
+		t.Errorf("without a key = %d", rec.Code)
+	}
+	testkit.WriteFile(t, filepath.Join(dir, "ssh", "id_ed25519"), "old private\n")
+	testkit.WriteFile(t, filepath.Join(dir, "ssh", "id_ed25519.pub"), "ssh-ed25519 OLD homeassistant-config-sync\n")
+	rec, out := do(t, s.Handler(), "POST", "/api/v1/deploy-key/rotate", "", true)
+	pub, _ := out["public_key"].(string)
+	if rec.Code != http.StatusOK || !strings.HasPrefix(pub, "ssh-ed25519 ") || strings.Contains(pub, "OLD") {
+		t.Errorf("rotate = %d %v", rec.Code, out)
+	}
+
+	// Not while a sync is running.
+	f := &fake{block: make(chan struct{})}
+	s2, _ := newServer(t, f, "")
+	j, _ := s2.Trigger("test", engine.SyncOptions{})
+	if rec, _ := do(t, s2.Handler(), "POST", "/api/v1/deploy-key/rotate", "", true); rec.Code != http.StatusConflict {
+		t.Errorf("during a sync = %d", rec.Code)
+	}
+	close(f.block)
+	waitJob(t, s2, j.ID)
+}
+
 func TestSchedulerTriggersAndSkipsWhenBusy(t *testing.T) {
 	f := &fake{}
 	s, _ := newServer(t, f, "")

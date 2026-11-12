@@ -64,6 +64,31 @@ func removeJournal(path string) error {
 // Finish deletes the journal after the engine moved box to R.
 func Finish(journalPath string) error { return removeJournal(journalPath) }
 
+// Undo reverts a finished apply (journal in the "checked" phase) back to B,
+// for a problem found after the check, such as automations that became
+// unavailable after the reload. Paths someone edited since are left alone,
+// like in Recover. The journal is removed only if the rollback succeeds.
+func Undo(ctx context.Context, repo *gitx.Repo, m *paths.Matcher, journalPath string) error {
+	j, err := readJournal(journalPath)
+	if err != nil {
+		return err
+	}
+	var toUndo []Op
+	for _, op := range j.Ops {
+		ok, err := atState(op.BoxPath, op.NewOID, op.NewMode)
+		if err != nil {
+			return err
+		}
+		if ok {
+			toUndo = append(toUndo, op)
+		}
+	}
+	if err := rollback(ctx, repo, toUndo, m.Mappings()); err != nil {
+		return fmt.Errorf("undoing the apply: %w", err)
+	}
+	return removeJournal(journalPath)
+}
+
 // RecoverOutcome is what Recover did.
 type RecoverOutcome string
 

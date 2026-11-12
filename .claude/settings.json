@@ -1,0 +1,13 @@
+{
+  "extraKnownMarketplaces": {
+    "sub-agents-skills": {
+      "source": {
+        "source": "github",
+        "repo": "shinpr/sub-agents-skills"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "runner@sub-agents-skills": true
+  }
+}

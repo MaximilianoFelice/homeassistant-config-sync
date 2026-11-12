@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -92,6 +93,29 @@ func APIToken(stateDir string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(b)), nil
+}
+
+// RotateDeployKey replaces the deploy key with a new one. The old pair is
+// kept as id_ed25519.old(.pub) so it can be removed from GitHub knowingly.
+// It takes the engine lock, so it never runs in the middle of a sync.
+func RotateDeployKey(stateDir string) (string, error) {
+	unlock, err := lock(filepath.Join(stateDir, "lock"))
+	if err != nil {
+		return "", err
+	}
+	defer unlock()
+	dir := filepath.Join(stateDir, "ssh")
+	priv := filepath.Join(dir, "id_ed25519")
+	if _, err := os.Stat(priv); err != nil {
+		return "", fmt.Errorf("no deploy key to rotate (run hcs init first): %w", err)
+	}
+	for from, to := range map[string]string{priv: priv + ".old", priv + ".pub": priv + ".old.pub"} {
+		if err := os.Rename(from, to); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return "", err
+		}
+	}
+	pub, _, err := ensureDeployKey(dir)
+	return pub, err
 }
 
 // DeployKey returns the public key of an already initialized state dir.

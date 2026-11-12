@@ -84,8 +84,42 @@ type Notifier interface {
 	Notify(ctx context.Context, ev Event) error
 }
 
+// Restarter restarts Home Assistant Core.
+type Restarter interface {
+	Restart(ctx context.Context) error
+}
+
+// AutomationStates reports the automations that are unavailable, which is
+// how HA exposes an automation whose config is invalid: check_config does not
+// catch those, they only show up after a reload.
+type AutomationStates interface {
+	UnavailableAutomations(ctx context.Context) ([]string, error)
+}
+
+// NewItems returns the elements of after that are not in before.
+func NewItems(before, after []string) []string {
+	seen := map[string]bool{}
+	for _, s := range before {
+		seen[s] = true
+	}
+	var out []string
+	for _, s := range after {
+		if !seen[s] {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // ReloadAll implements Reloader by doing nothing.
 func (Noop) ReloadAll(context.Context) error { return nil }
+
+// Restart implements Restarter by doing nothing.
+func (Noop) Restart(context.Context) error { return nil }
+
+// UnavailableAutomations implements AutomationStates: without Home Assistant
+// there is nothing to inspect.
+func (Noop) UnavailableAutomations(context.Context) ([]string, error) { return nil, nil }
 
 // Notify implements Notifier by doing nothing.
 func (Noop) Notify(context.Context, Event) error { return nil }

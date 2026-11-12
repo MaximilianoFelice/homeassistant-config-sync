@@ -65,8 +65,10 @@ type Options struct {
 	// modified. If it returns an error nothing is written or committed (the
 	// secret scanner hooks in here in M5).
 	BeforeCommit func(ctx context.Context, changes []Change, contents map[string][]byte) error
-	// DryRun computes the changes and runs BeforeCommit, but does not write
-	// objects or move the branch.
+	// DryRun builds the snapshot commit (so a plan can merge the uncommitted
+	// box changes exactly) but does not move the branch. Objects are written
+	// only after BeforeCommit passes, so a blocked secret never reaches the
+	// object store; the unreferenced commit is garbage-collected by git.
 	DryRun bool
 }
 
@@ -136,10 +138,6 @@ func Take(ctx context.Context, repo *gitx.Repo, opts Options) (*Result, error) {
 			return res, err
 		}
 	}
-	if opts.DryRun {
-		return res, nil
-	}
-
 	updates := make([]gitx.IndexUpdate, 0, len(changes))
 	for _, c := range changes {
 		if c.Kind == Deleted {
@@ -182,8 +180,10 @@ func Take(ctx context.Context, repo *gitx.Repo, opts Options) (*Result, error) {
 	if err != nil {
 		return res, err
 	}
-	if err := repo.UpdateRef(ctx, opts.Ref, commit, parent); err != nil {
-		return res, err
+	if !opts.DryRun {
+		if err := repo.UpdateRef(ctx, opts.Ref, commit, parent); err != nil {
+			return res, err
+		}
 	}
 	res.Commit = commit
 	return res, nil

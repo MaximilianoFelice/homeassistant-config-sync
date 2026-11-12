@@ -249,10 +249,10 @@ There is no automatic strategy (`prefer_main` / `prefer_box`) in v0/v1. It remai
 
 ### Modes
 
-`mode: bidirectional` (default) | `push_only` (never applies from `main`) | `pull_only` (does not snapshot; useful for a staging box).
+`mode: bidirectional` (default) | `push_only` (never applies from `main`) | `pull_only` (the box follows `main`; useful for a staging box).
 
 - `push_only` only publishes the `box` branch; `main` is left to humans and the box never reads it.
-- `pull_only` is out of scope for v0: the engine rejects it with an explicit error. What to do with local edits (discard them?) has to be defined before implementing it.
+- `pull_only`: the box takes `main`'s tree and **discards its own edits**. They are not lost: the snapshot still commits them to `box` first, and `R` is a commit with parents `[box, main]` and `main`'s tree (`merge.Follow`), so the `box` history keeps every discarded edit. `main` is never written. `push_only` paths still keep the box version. There are no conflicts by construction. The first sync against an existing `main` still stops in `bootstrap_review`, because following `main` replaces the box config.
 
 ### Other cycle cases (implemented in M6)
 
@@ -277,7 +277,9 @@ There is no automatic strategy (`prefer_main` / `prefer_box`) in v0/v1. It remai
 - `any`: rejects on any warning.
 - `ignore`: only looks at errors, like the "Check configuration" button in the UI.
 - The REST API is even more permissive than the CLI script: an invalid `http.server_port` is an **error** for `check_config --json`, but through `/api/config/core/check_config` (what the app uses) it is a **warning** with `result: valid`. For the API, only YAML that does not parse is an error. With `ignore` almost everything would get through; that is why the default is `new`.
-- Invalid automations are not detected by any of the three. This remains a future improvement (for example, checking the log or the automations' `unavailable` state after the reload).
+- Invalid automations are not detected by any of the three; they are handled after the reload (see below).
+
+**Invalid automations (verified against HA 2026.11.1).** `check_config` accepts an automation with a nonexistent trigger; after the reload HA exposes it as an `automation.*` entity in state `unavailable`. So with `reload: auto` the engine reads the unavailable automations before the apply (`GET /api/states`), reloads **before publishing**, and reads them again. If new ones appeared, it undoes the apply (`apply.Undo`), reloads again to get back to `B`, and the state becomes `rejected`, naming the automations. Nothing reaches `main` or `box`. With `reload: none` there is no reload, so nothing can be detected.
 
 **Risk window:** `check_config` validates the live directory, so new files are on disk for a few seconds before the rollback. HA does not reread YAML on its own (except specific integrations that watch files, such as pyscript), so the risk is low. A check in a staging directory would need the HA Core image inside the app, which is too heavy. This is documented and ruled out for v1.
 
@@ -296,8 +298,10 @@ There is no automatic strategy (`prefer_main` / `prefer_box`) in v0/v1. It remai
 
 - `reload: auto` (default): if the apply touched `/homeassistant` and the check passed, `homeassistant.reload_all` is called (it reloads everything that is reloadable from YAML).
 - `reload: none`: reloads nothing; only notifies.
-- **Restart is never automatic by default.** If paths that usually require a restart changed (`configuration.yaml` outside reloadable blocks, `packages/**`, `custom_components/**` if someone included them), the state gets `restart_recommended: true` and a notification is sent. `restart: auto` exists as an explicit opt-in for anyone who wants it.
-- In `/app_configs` the engine does not restart apps. It reports which apps had changes. Restarting apps from the engine is left for v2, with `hassio_api`.
+- The reload happens **before** publishing, so a change that breaks automations can still be undone (see above).
+- **Restart is never automatic by default.** If paths that usually require a restart changed (`configuration.yaml`, `packages/**`, `custom_components/**` if someone included them), the state gets `restart_recommended: true` and a notification is sent. With `restart: auto` (explicit opt-in) the engine calls `homeassistant.restart` after publishing and clears the flag.
+- In `/app_configs` the engine does not restart apps; it reports which apps had changes. Decided (2026-11-12): apps are never restarted by the engine, to keep the permissions minimal (only `homeassistant_api`, no `hassio_role: manager`).
+- **Notifications are not repeated:** a problem that persists across cycles is notified once; the key resets when the sync returns to `idle`.
 
 ## 8. Secret scanner
 
@@ -326,7 +330,7 @@ Rules:
   - `GIT_TERMINAL_PROMPT=0`, `GIT_ASKPASS=/bin/false`, `-c credential.helper=`
   - `-c protocol.allow=never -c protocol.ssh.allow=always` (`file` enabled only in tests)
 - Repo URL validation: only `git@host:owner/repo.git` or `ssh://...`. `http(s)://` and any URL with embedded credentials are rejected.
-- Rotation: `POST /api/v1/deploy-key/rotate` (generates the new key, shows the public key, and the old one is deleted on the first successful push with the new one).
+- Rotation: `hcs deploy-key --rotate` or `POST /api/v1/deploy-key/rotate`. It takes the engine lock (never in the middle of a sync), generates a new key, returns the public key, and keeps the old pair as `id_ed25519.old(.pub)`. The app uses the new key right away; the user adds it on GitHub and removes the old one.
 
 ## 10. Home Assistant API via `SUPERVISOR_TOKEN`
 
@@ -381,7 +385,8 @@ Authentication:
 
 Implemented in M8 (`internal/api`, `hcs serve`):
 
-- All endpoints in the table except `deploy-key/rotate` and `events` (SSE), which are left for v2.
+- All endpoints in the table except `events` (SSE), which is left for v2.
+- **`plan` / `pending` are exact:** the dry-run builds the snapshot commit (objects only, after the secret scanner passed) without moving `box`, so the merge it reports includes the uncommitted box changes, conflicts included.
 - **One cycle at a time:** if one is already running, `POST /sync` and `GET /pending` respond `409` with the current job. The scheduler skips the tick.
 - **`GET /pending`** is a synchronous dry run.
 - **A shutdown (SIGTERM)** stops accepting requests and waits for the current cycle to finish. Cycles are never cancelled halfway; they are capped at 15 min.

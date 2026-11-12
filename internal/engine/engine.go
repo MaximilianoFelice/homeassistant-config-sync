@@ -36,7 +36,6 @@ var (
 	ErrNotInitialized = errors.New("the state dir is not initialized (run hcs init)")
 	ErrBoxDiverged    = errors.New("the remote box branch has commits the local one lacks: someone pushed to box")
 	ErrTooManyRetries = errors.New("the disk or main changed on every attempt; will retry on the next cycle")
-	ErrPullOnly       = errors.New("mode: pull_only is not implemented yet")
 )
 
 // Options configures the engine.
@@ -47,6 +46,8 @@ type Options struct {
 	Checker         ha.Checker
 	Reloader        ha.Reloader
 	Notifier        ha.Notifier
+	Restarter       ha.Restarter
+	States          ha.AutomationStates
 	Now             func() time.Time
 
 	hooks hooks
@@ -73,6 +74,8 @@ type Engine struct {
 	checker ha.Checker
 	reload  ha.Reloader
 	notify  ha.Notifier
+	restart ha.Restarter
+	states  ha.AutomationStates
 	now     func() time.Time
 	hooks   hooks
 
@@ -97,6 +100,7 @@ func New(opts Options) (*Engine, error) {
 	e := &Engine{
 		cfg: cfg, dir: opts.StateDir, m: m, scanner: sc,
 		checker: opts.Checker, reload: opts.Reloader, notify: opts.Notifier,
+		restart: opts.Restarter, states: opts.States,
 		now: opts.Now, hooks: opts.hooks, allowFile: opts.AllowFileRemote,
 		boxRef:    "refs/heads/" + cfg.BoxBranch,
 		trackMain: "refs/remotes/origin/" + cfg.MainBranch,
@@ -110,6 +114,12 @@ func New(opts Options) (*Engine, error) {
 	}
 	if e.notify == nil {
 		e.notify = ha.Noop{}
+	}
+	if e.restart == nil {
+		e.restart = ha.Noop{}
+	}
+	if e.states == nil {
+		e.states = ha.Noop{}
 	}
 	if e.now == nil {
 		e.now = time.Now
@@ -194,7 +204,11 @@ type Report struct {
 	Warnings       []secrets.Finding    `json:"warnings,omitempty"`
 	Recovered      apply.RecoverOutcome `json:"recovered,omitempty"`
 	Restart        bool                 `json:"restart_recommended,omitempty"`
-	Error          string               `json:"error,omitempty"`
+	Restarted      bool                 `json:"restarted,omitempty"`
+	// BrokenAutomations are automations that became unavailable after the
+	// reload, which made the apply roll back.
+	BrokenAutomations []string `json:"broken_automations,omitempty"`
+	Error             string   `json:"error,omitempty"`
 }
 
 // Sync runs a full cycle. States that need user intervention (conflict,
@@ -263,10 +277,6 @@ func notifyKey(ev ha.Event) string {
 }
 
 func (e *Engine) cycle(ctx context.Context, st *State, rep *Report, so SyncOptions) error {
-	if e.cfg.Mode == config.ModePullOnly {
-		return ErrPullOnly
-	}
-
 	// 0. An interrupted apply is resolved before anything else.
 	if !so.DryRun {
 		outcome, j, err := apply.Recover(ctx, e.repo, e.m, e.path("apply.json"))
@@ -392,8 +402,13 @@ func (e *Engine) cycle(ctx context.Context, st *State, rep *Report, so SyncOptio
 			return e.pushBox(ctx, url, b, originBox, rep, so)
 		}
 
-		// 3. Merge.
-		mres, err := merge.Merge(ctx, e.repo, b, originMain, merge.Options{BoxWins: e.boxWins, Now: e.now})
+		// 3. Merge. In pull_only the box follows main and its own edits are
+		// discarded (they stay in the box branch history).
+		mergeFn := merge.Merge
+		if e.cfg.Mode == config.ModePullOnly {
+			mergeFn = merge.Follow
+		}
+		mres, err := mergeFn(ctx, e.repo, b, originMain, merge.Options{BoxWins: e.boxWins, Now: e.now})
 		if err != nil {
 			return err
 		}
@@ -422,6 +437,16 @@ func (e *Engine) cycle(ctx context.Context, st *State, rep *Report, so SyncOptio
 			return nil
 		}
 		var ares *apply.Result
+		// Automations that are already unavailable before the apply, to tell
+		// them apart from the ones the change breaks (check_config does not
+		// catch an invalid automation; only the reload does).
+		var brokenBefore []string
+		detectBroken := false
+		if len(plan.Ops) > 0 && e.cfg.Reload == config.ReloadAuto && e.touchesChecked(plan) {
+			if bb, err := e.states.UnavailableAutomations(ctx); err == nil {
+				brokenBefore, detectBroken = bb, true
+			}
+		}
 		if len(plan.Ops) > 0 {
 			if e.hooks.beforeApply != nil {
 				e.hooks.beforeApply(attempt)
@@ -450,7 +475,23 @@ func (e *Engine) cycle(ctx context.Context, st *State, rep *Report, so SyncOptio
 			}
 		}
 
-		// 5. Publish: local box first (the disk is already at R), then the remote.
+		// 5. Reload, before publishing: if the change breaks automations it
+		// is undone and never reaches main.
+		if rep.Applied && rep.Checked && e.cfg.Reload == config.ReloadAuto {
+			if err := e.reload.ReloadAll(ctx); err != nil {
+				rep.Error = "the sync finished, but the reload failed: " + err.Error()
+			} else {
+				rep.Reloaded = true
+				if detectBroken {
+					after, err := e.states.UnavailableAutomations(ctx)
+					if broken := ha.NewItems(brokenBefore, after); err == nil && len(broken) > 0 {
+						return e.rejectBroken(ctx, st, rep, so, url, b, originMain, originBox, broken)
+					}
+				}
+			}
+		}
+
+		// 6. Publish: local box first (the disk is already at R), then the remote.
 		if r != b {
 			if err := e.repo.UpdateRef(ctx, e.boxRef, r, b); err != nil {
 				return err
@@ -466,7 +507,7 @@ func (e *Engine) cycle(ctx context.Context, st *State, rep *Report, so SyncOptio
 		rep.Restart = st.RestartRecommended
 
 		var refspecs []string
-		if originMain != r {
+		if originMain != r && e.cfg.Mode != config.ModePullOnly {
 			refspecs = append(refspecs, r+":refs/heads/"+e.cfg.MainBranch)
 		}
 		if originBox != r {
@@ -483,21 +524,25 @@ func (e *Engine) cycle(ctx context.Context, st *State, rep *Report, so SyncOptio
 		}
 		rep.Pushed = refspecs
 		// The tracking refs reflect what we just published.
-		if err := e.track(ctx, e.trackMain, r, originMain); err != nil {
-			return err
+		if e.cfg.Mode != config.ModePullOnly {
+			if err := e.track(ctx, e.trackMain, r, originMain); err != nil {
+				return err
+			}
 		}
 		if err := e.track(ctx, e.trackBox, r, originBox); err != nil {
 			return err
 		}
 
-		// 6. Reload.
-		if rep.Applied && rep.Checked && e.cfg.Reload == config.ReloadAuto {
-			if err := e.reload.ReloadAll(ctx); err != nil {
-				rep.Error = "the sync finished, but the reload failed: " + err.Error()
+		// 7. Restart, only if asked for (restart: auto) and the change needs it.
+		if rep.Applied && st.RestartRecommended && e.cfg.Restart == config.RestartAuto {
+			if err := e.restart.Restart(ctx); err != nil {
+				rep.Error = "the sync finished, but the restart failed: " + err.Error()
 			} else {
-				rep.Reloaded = true
+				rep.Restarted = true
+				st.RestartRecommended = false
 			}
 		}
+		rep.Restart = st.RestartRecommended
 		rep.State = StateIdle
 		return nil
 	}
@@ -549,6 +594,37 @@ func (e *Engine) pushBox(ctx context.Context, url, b, originBox string, rep *Rep
 	return nil
 }
 
+// rejectBroken undoes an apply whose reload left automations unavailable,
+// reloads again to get back to B, and leaves the state in rejected.
+func (e *Engine) rejectBroken(ctx context.Context, st *State, rep *Report, so SyncOptions, url, b, originMain, originBox string, broken []string) error {
+	if err := apply.Undo(ctx, e.repo, e.m, e.path("apply.json")); err != nil {
+		return err
+	}
+	if err := e.reload.ReloadAll(ctx); err != nil {
+		rep.Error = "the change was undone, but the second reload failed: " + err.Error()
+	}
+	msg := fmt.Sprintf("%v: these automations became unavailable after the reload (invalid config): %s",
+		apply.ErrRejected, strings.Join(broken, ", "))
+	st.Rejected = &Rejected{Main: originMain, Box: b, Errors: msg}
+	rep.State, rep.Applied, rep.Reloaded, rep.BrokenAutomations = StateRejected, false, false, broken
+	if rep.Error == "" {
+		rep.Error = msg
+	}
+	return e.pushBox(ctx, url, b, originBox, rep, so)
+}
+
+// touchesChecked reports whether the plan changes a mapping that requires
+// check_config (the HA config itself).
+func (e *Engine) touchesChecked(plan *apply.Plan) bool {
+	mappings := e.m.Mappings()
+	for _, op := range plan.Ops {
+		if mappings[op.Mapping].Check {
+			return true
+		}
+	}
+	return false
+}
+
 // track moves a tracking ref after a successful push.
 func (e *Engine) track(ctx context.Context, ref, to, from string) error {
 	if to == from {
@@ -586,7 +662,10 @@ func eventFor(rep *Report) (ha.Event, bool) {
 			return ha.Event{}, false
 		}
 		msg := "Sync complete."
-		if rep.Restart {
+		switch {
+		case rep.Restarted:
+			msg += " Home Assistant is restarting to apply the changes."
+		case rep.Restart:
 			msg += " Some changes need a Home Assistant restart."
 		}
 		return ha.Event{Type: ha.EventSyncFinished, Title: "Git Config Sync", Message: msg, Data: data, Persistent: rep.Restart}, true

@@ -38,6 +38,7 @@ func newEngine(g globalFlags, stderr io.Writer) (*engine.Engine, *config.Config,
 	e, err := engine.New(engine.Options{
 		Config: cfg, StateDir: g.stateDir, AllowFileRemote: g.allowFileRemote,
 		Checker: hac.checker, Reloader: hac.reloader, Notifier: hac.notifier,
+		Restarter: hac.restarter, States: hac.states,
 	})
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "hcs:", err)
@@ -48,9 +49,11 @@ func newEngine(g globalFlags, stderr io.Writer) (*engine.Engine, *config.Config,
 
 // haClients groups what the engine needs from Home Assistant.
 type haClients struct {
-	checker  ha.Checker
-	reloader ha.Reloader
-	notifier ha.Notifier
+	checker   ha.Checker
+	reloader  ha.Reloader
+	notifier  ha.Notifier
+	restarter ha.Restarter
+	states    ha.AutomationStates
 }
 
 // makeHA picks the HA clients. Inside the app (SUPERVISOR_TOKEN is set)
@@ -63,14 +66,16 @@ func makeHA(spec, notifyService string) (haClients, error) {
 		if err != nil {
 			return haClients{}, err
 		}
-		return haClients{checker: s, reloader: s, notifier: s}, nil
+		return haClients{checker: s, reloader: s, notifier: s, restarter: s, states: s}, nil
 	}
 	noop := ha.Noop{}
+	local := haClients{checker: noop, reloader: noop, notifier: noop, restarter: noop, states: noop}
 	switch {
 	case spec == "", spec == "noop":
-		return haClients{checker: noop, reloader: noop, notifier: noop}, nil
+		return local, nil
 	case strings.HasPrefix(spec, "command:"):
-		return haClients{checker: ha.CommandChecker{Command: strings.TrimPrefix(spec, "command:")}, reloader: noop, notifier: noop}, nil
+		local.checker = ha.CommandChecker{Command: strings.TrimPrefix(spec, "command:")}
+		return local, nil
 	}
 	return haClients{}, fmt.Errorf("invalid --checker %q: supervisor | noop | command:'<cmd>'", spec)
 }
@@ -95,6 +100,16 @@ func cmdInit(g globalFlags, stdout, stderr io.Writer) int {
 }
 
 func cmdDeployKey(g globalFlags, stdout, stderr io.Writer) int {
+	if g.rotate {
+		pub, err := engine.RotateDeployKey(g.stateDir)
+		if err != nil {
+			_, _ = fmt.Fprintln(stderr, "hcs:", err)
+			return exitError
+		}
+		_, _ = fmt.Fprintln(stdout, "Generated a new deploy key. Add it on GitHub (Settings → Deploy keys → Allow write access) and remove the old one:")
+		_, _ = fmt.Fprintln(stdout, pub)
+		return exitOK
+	}
 	pub, err := engine.DeployKey(g.stateDir)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "hcs: no deploy key (did you run hcs init?):", err)
@@ -183,11 +198,7 @@ func printReport(w io.Writer, rep *engine.Report) {
 		p("  skipped: %s (%s)", s.RepoPath, s.Reason)
 	}
 	if rep.MergeKind != "" {
-		note := ""
-		if rep.DryRun && len(rep.Changes) > 0 {
-			note = " (computed without the uncommitted box changes above)"
-		}
-		p("merge: %s → %s%s", rep.MergeKind, orDash(short(rep.R)), note)
+		p("merge: %s → %s", rep.MergeKind, orDash(short(rep.R)))
 	}
 	for _, c := range rep.ConflictPaths {
 		p("  conflict: %s", c)
@@ -213,8 +224,13 @@ func printReport(w io.Writer, rep *engine.Report) {
 	if rep.Applied {
 		p("applied (check: %v, reload: %v)", rep.Checked, rep.Reloaded)
 	}
-	if rep.Restart {
+	if rep.Restarted {
+		p("Home Assistant restarted")
+	} else if rep.Restart {
 		p("a Home Assistant restart is recommended")
+	}
+	for _, a := range rep.BrokenAutomations {
+		p("  broken automation: %s", a)
 	}
 	for _, s := range rep.Pushed {
 		p("push: %s", s)

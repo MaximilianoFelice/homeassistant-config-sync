@@ -35,19 +35,39 @@ type world struct {
 	eng    *Engine
 	opts   Options
 
-	checks  int
-	verdict ha.CheckResult
-	reloads int
-	events  []ha.Event
+	checks   int
+	verdict  ha.CheckResult
+	reloads  int
+	restarts int
+	events   []ha.Event
+	// broken is what UnavailableAutomations returns; brokenAfterReload, if
+	// set, replaces it after the next reload (simulates a bad automation).
+	broken            []string
+	brokenAfterReload []string
 }
 
 type fakeHA struct{ w *world }
+
+func (f fakeHA) Restart(context.Context) error { f.w.restarts++; return nil }
+func (f fakeHA) UnavailableAutomations(context.Context) ([]string, error) {
+	return f.w.broken, nil
+}
 
 func (f fakeHA) CheckConfig(context.Context) (ha.CheckResult, error) {
 	f.w.checks++
 	return f.w.verdict, nil
 }
-func (f fakeHA) ReloadAll(context.Context) error { f.w.reloads++; return nil }
+func (f fakeHA) ReloadAll(context.Context) error {
+	f.w.reloads++
+	if f.w.brokenAfterReload != nil {
+		// The first reload breaks automations; the second (after the undo)
+		// brings them back.
+		f.w.broken, f.w.brokenAfterReload = f.w.brokenAfterReload, nil
+	} else if f.w.reloads > 1 {
+		f.w.broken = nil
+	}
+	return nil
+}
 func (f fakeHA) Notify(_ context.Context, ev ha.Event) error {
 	f.w.events = append(f.w.events, ev)
 	return nil
@@ -79,7 +99,8 @@ func newWorld(t *testing.T, mutate ...func(*config.Config)) *world {
 		m(cfg)
 	}
 	f := fakeHA{w}
-	w.opts = Options{Config: cfg, StateDir: filepath.Join(root, "state"), AllowFileRemote: true, Checker: f, Reloader: f, Notifier: f}
+	w.opts = Options{Config: cfg, StateDir: filepath.Join(root, "state"), AllowFileRemote: true,
+		Checker: f, Reloader: f, Notifier: f, Restarter: f, States: f}
 	w.newEngine()
 	if _, err := w.eng.Init(ctx); err != nil {
 		t.Fatal(err)
@@ -489,6 +510,151 @@ func TestRepeatedProblemIsNotifiedOnce(t *testing.T) {
 	st, _ := LoadState(w.opts.StateDir)
 	if st.LastNotified != "" {
 		t.Error("returning to idle resets it")
+	}
+}
+
+func TestPullOnlyFollowsMain(t *testing.T) {
+	w := newWorld(t, func(c *config.Config) { c.Mode = config.ModePullOnly })
+	// pull_only on an empty remote: there is no main to follow yet; the box
+	// is published to box only.
+	w.edit("config/automations.yaml", "[]\n")
+	w.edit("config/scripts.yaml", "a: {}\n")
+	if rep := w.sync(); rep.State != StateIdle {
+		t.Fatalf("= %+v", rep)
+	}
+	if w.remote("main") != "" {
+		t.Fatal("pull_only never writes main")
+	}
+
+	// main is created by someone else, and the box edits a file locally.
+	w.devPush(map[string]string{"config/automations.yaml": "- id: main\n", "config/scripts.yaml": "a: {}\n"})
+	mainBefore := w.remote("main")
+	w.edit("config/scripts.yaml", "a: {edited: locally}\n")
+	rep := w.sync()
+	if rep.State != StateIdle || rep.MergeKind != merge.FollowMain || !rep.Applied {
+		t.Fatalf("= %+v", rep)
+	}
+	d := w.disk()
+	if d["config/automations.yaml"] != "- id: main\n" || d["config/scripts.yaml"] != "a: {}\n" {
+		t.Errorf("the box must follow main, local edit discarded: %v", d)
+	}
+	if w.remote("main") != mainBefore {
+		t.Error("pull_only never writes main")
+	}
+	// The discarded edit is kept in the box branch history.
+	log, err := w.origin.LsTree(ctx, w.remote("box")+"^1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range log {
+		if e.Path == "config/scripts.yaml" {
+			b, _ := w.origin.ReadBlob(ctx, e.OID)
+			found = string(b) == "a: {edited: locally}\n"
+		}
+	}
+	if !found {
+		t.Error("the local edit must stay in the history of the box branch")
+	}
+	// Idempotent.
+	if rep := w.sync(); rep.SnapshotCommit != "" || len(rep.Pushed) != 0 {
+		t.Errorf("second sync should do nothing: %+v", rep)
+	}
+}
+
+func TestRestartAuto(t *testing.T) {
+	w := newWorld(t, func(c *config.Config) { c.Restart = config.RestartAuto })
+	w.seedBox()
+	w.devPush(map[string]string{"config/configuration.yaml": "homeassistant:\n  name: Other\n"})
+	rep := w.sync()
+	if !rep.Restarted || w.restarts != 1 || rep.Restart {
+		t.Fatalf("= %+v, restarts = %d", rep, w.restarts)
+	}
+	if !strings.Contains(w.lastEvent().Message, "restarting") {
+		t.Errorf("event = %+v", w.lastEvent())
+	}
+	// A change that does not need a restart does not restart.
+	w.devPush(map[string]string{"config/scripts.yaml": "hello:\n  sequence: [x]\n"})
+	if rep := w.sync(); rep.Restarted || w.restarts != 1 {
+		t.Errorf("= %+v, restarts = %d", rep, w.restarts)
+	}
+}
+
+func TestRestartNeverIsTheDefault(t *testing.T) {
+	w := newWorld(t)
+	w.seedBox()
+	w.devPush(map[string]string{"config/configuration.yaml": "homeassistant:\n  name: Other\n"})
+	rep := w.sync()
+	if rep.Restarted || w.restarts != 0 || !rep.Restart {
+		t.Fatalf("= %+v, restarts = %d", rep, w.restarts)
+	}
+}
+
+func TestBrokenAutomationIsUndone(t *testing.T) {
+	w := newWorld(t)
+	w.seedBox()
+	w.broken = []string{"automation.already_broken"}
+	before := w.remote("box")
+	mainBad := w.devPush(map[string]string{"config/automations.yaml": "- id: '1'\n  triggers: [{trigger: nope}]\n"})
+	w.brokenAfterReload = []string{"automation.already_broken", "automation.uno"}
+
+	rep := w.sync()
+	if rep.State != StateRejected || !slices.Equal(rep.BrokenAutomations, []string{"automation.uno"}) {
+		t.Fatalf("= %+v", rep)
+	}
+	if got := w.disk()["config/automations.yaml"]; got != "- id: '1'\n  alias: one\n" {
+		t.Errorf("the file must be rolled back: %q", got)
+	}
+	if w.reloads != 2 {
+		t.Errorf("reloads = %d, want 2 (apply + undo)", w.reloads)
+	}
+	if w.remote("box") != before || w.remote("main") != mainBad {
+		t.Error("nothing is published after an undo")
+	}
+	if ev := w.lastEvent(); ev.Type != ha.EventRejected || !strings.Contains(ev.Message, "automation.uno") {
+		t.Errorf("event = %+v", ev)
+	}
+	// Same main again: not retried.
+	if rep := w.sync(); rep.State != StateRejected || w.reloads != 2 {
+		t.Errorf("should not retry: %+v, reloads = %d", rep, w.reloads)
+	}
+}
+
+func TestDryRunMergesUncommittedBoxChanges(t *testing.T) {
+	w := newWorld(t)
+	w.seedBox()
+	w.devPush(map[string]string{"config/automations.yaml": "- id: '1'\n  alias: from main\n"})
+	w.edit("config/automations.yaml", "- id: '1'\n  alias: from the UI\n")
+	rep := w.sync(SyncOptions{DryRun: true})
+	if rep.MergeKind != merge.Conflict || !slices.Equal(rep.ConflictPaths, []string{"config/automations.yaml"}) {
+		t.Fatalf("the plan must see the conflict the real sync would hit: %+v", rep)
+	}
+	if b, _ := w.eng.repo.ResolveRef(ctx, w.eng.boxRef); b == rep.SnapshotCommit {
+		t.Error("dry-run must not move the box branch")
+	}
+}
+
+func TestRotateDeployKey(t *testing.T) {
+	w := newWorld(t)
+	old, _ := DeployKey(w.opts.StateDir)
+	pub, err := RotateDeployKey(w.opts.StateDir)
+	if err != nil || pub == old || !strings.HasPrefix(pub, "ssh-ed25519 ") {
+		t.Fatalf("= %q, %v", pub, err)
+	}
+	if cur, _ := DeployKey(w.opts.StateDir); cur != pub {
+		t.Error("DeployKey must return the new key")
+	}
+	if b, err := os.ReadFile(filepath.Join(w.opts.StateDir, "ssh", "id_ed25519.old.pub")); err != nil || strings.TrimSpace(string(b)) != old {
+		t.Errorf("the old key is kept as .old: %v", err)
+	}
+	// Busy while a sync holds the lock.
+	unlock, err := lock(filepath.Join(w.opts.StateDir, "lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	if _, err := RotateDeployKey(w.opts.StateDir); !errors.Is(err, ErrBusy) {
+		t.Errorf("= %v, want ErrBusy", err)
 	}
 }
 

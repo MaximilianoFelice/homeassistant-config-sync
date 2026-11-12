@@ -48,6 +48,9 @@ type globalFlags struct {
 	listen      string
 	stdin       bool
 	syncOnStart bool
+
+	// Only deploy-key.
+	rotate bool
 }
 
 func (g *globalFlags) register(fs *flag.FlagSet) {
@@ -62,6 +65,7 @@ func (g *globalFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&g.listen, "listen", "127.0.0.1:8099", "serve: API address")
 	fs.BoolVar(&g.stdin, "stdin", false, "serve: accept commands on stdin (\"sync\"), like hassio.addon_stdin")
 	fs.BoolVar(&g.syncOnStart, "sync-on-start", false, "serve: run a sync on startup")
+	fs.BoolVar(&g.rotate, "rotate", false, "deploy-key: generate a new key (keeps the old one as id_ed25519.old)")
 }
 
 func main() {

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 )
@@ -89,13 +90,26 @@ func orDefault(d, def time.Duration) time.Duration {
 
 // post sends a JSON body and decodes the response into out (if not nil).
 func (s *Supervisor) post(ctx context.Context, path string, timeout time.Duration, body, out any) error {
+	return s.do(ctx, http.MethodPost, path, timeout, body, out)
+}
+
+// get decodes the response of a GET into out.
+func (s *Supervisor) get(ctx context.Context, path string, timeout time.Duration, out any) error {
+	return s.do(ctx, http.MethodGet, path, timeout, nil, out)
+}
+
+func (s *Supervisor) do(ctx context.Context, method, path string, timeout time.Duration, body, out any) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	b, err := json.Marshal(body)
-	if err != nil {
-		return err
+	var rd io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		rd = bytes.NewReader(b)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.base()+path, bytes.NewReader(b))
+	req, err := http.NewRequestWithContext(ctx, method, s.base()+path, rd)
 	if err != nil {
 		return err
 	}
@@ -104,7 +118,7 @@ func (s *Supervisor) post(ctx context.Context, path string, timeout time.Duratio
 	resp, err := s.client().Do(req)
 	if err != nil {
 		// The net/http error includes the URL, never the headers.
-		return fmt.Errorf("POST %s: %w", path, err)
+		return fmt.Errorf("%s %s: %w", method, path, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBody))
@@ -112,14 +126,41 @@ func (s *Supervisor) post(ctx context.Context, path string, timeout time.Duratio
 		return err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return &APIError{Method: http.MethodPost, Path: path, Status: resp.StatusCode, Body: strings.TrimSpace(string(data))}
+		return &APIError{Method: method, Path: path, Status: resp.StatusCode, Body: strings.TrimSpace(string(data))}
 	}
 	if out != nil {
 		if err := json.Unmarshal(data, out); err != nil {
-			return fmt.Errorf("POST %s: unexpected response: %w", path, err)
+			return fmt.Errorf("%s %s: unexpected response: %w", method, path, err)
 		}
 	}
 	return nil
+}
+
+// Restart implements Restarter with homeassistant.restart. HA answers before
+// it goes down, so a successful call only means the restart was accepted.
+func (s *Supervisor) Restart(ctx context.Context) error {
+	return s.post(ctx, "/services/homeassistant/restart", orDefault(s.RequestTimeout, DefaultRequestTimeout), struct{}{}, nil)
+}
+
+// UnavailableAutomations implements AutomationStates with GET /api/states:
+// the automation entities whose state is "unavailable" (HA keeps an
+// automation with an invalid config as an unavailable entity).
+func (s *Supervisor) UnavailableAutomations(ctx context.Context) ([]string, error) {
+	var states []struct {
+		EntityID string `json:"entity_id"`
+		State    string `json:"state"`
+	}
+	if err := s.get(ctx, "/states", orDefault(s.RequestTimeout, DefaultRequestTimeout), &states); err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, st := range states {
+		if strings.HasPrefix(st.EntityID, "automation.") && st.State == "unavailable" {
+			out = append(out, st.EntityID)
+		}
+	}
+	sort.Strings(out)
+	return out, nil
 }
 
 // CheckConfig implements Checker with POST /api/config/core/check_config.

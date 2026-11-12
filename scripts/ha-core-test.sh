@@ -37,6 +37,15 @@ config:
 onboarding:
 input_boolean:
   hcs_test:
+automation: !include automations.yaml
+EOF
+cat > /config/automations.yaml <<EOF
+- id: hcs_ok
+  alias: hcs ok
+  triggers:
+    - trigger: time
+      at: "03:00:00"
+  actions: []
 EOF'
 docker run -d --name "$name" -p "127.0.0.1:$port:8123" -v "$name:/config" "$image" >/dev/null
 

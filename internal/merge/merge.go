@@ -155,6 +155,60 @@ func Merge(ctx context.Context, repo *gitx.Repo, box, main string, opts Options)
 	return res, nil
 }
 
+// FollowMain is the pull_only case: R takes main's tree and discards the
+// box's own edits.
+const FollowMain Kind = "follow_main"
+
+// Follow is the merge for mode: pull_only. R gets main's tree (except
+// push_only paths, which keep the box version) and has box as its first
+// parent, so the box branch only moves forward and its history keeps the
+// local edits that were discarded. main is never modified. There are no
+// conflicts by construction.
+func Follow(ctx context.Context, repo *gitx.Repo, box, main string, opts Options) (*Result, error) {
+	if box == "" {
+		return nil, errors.New("merge: the box branch does not exist")
+	}
+	res := &Result{Box: box, Main: main}
+	if main == "" || main == box {
+		res.Kind, res.R = UpToDate, box
+		return res, nil
+	}
+	tree, err := repo.TreeOf(ctx, main)
+	if err != nil {
+		return nil, err
+	}
+	if tree, res.Overridden, err = overrideBoxWins(ctx, repo, box, tree, opts.BoxWins); err != nil {
+		return nil, err
+	}
+	boxTree, err := repo.TreeOf(ctx, box)
+	if err != nil {
+		return nil, err
+	}
+	if tree == boxTree {
+		res.Kind, res.R = UpToDate, box
+		return res, nil
+	}
+	boxIsAncestor, err := repo.IsAncestor(ctx, box, main)
+	if err != nil {
+		return nil, err
+	}
+	if boxIsAncestor && len(res.Overridden) == 0 {
+		res.Kind, res.R = FastForwardBox, main
+		return res, nil
+	}
+	now := time.Now
+	if opts.Now != nil {
+		now = opts.Now
+	}
+	id, _ := gitx.ParseIdent(gitx.EngineIdent, now())
+	res.Kind = FollowMain
+	res.R, err = repo.CommitTree(ctx, tree, []string{box, main}, message("box: follow main (pull_only)", res.Overridden), id, id)
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 func collectConflicts(res *Result, mt *gitx.MergeTreeResult) {
 	set := map[string]bool{}
 	for _, p := range mt.Conflicted {

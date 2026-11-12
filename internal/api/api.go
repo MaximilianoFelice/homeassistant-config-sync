@@ -179,6 +179,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/sync", s.sync)
 	mux.HandleFunc("GET /api/v1/jobs/{id}", s.job)
 	mux.HandleFunc("GET /api/v1/deploy-key", s.deployKey)
+	mux.HandleFunc("POST /api/v1/deploy-key/rotate", s.rotateKey)
 	return s.auth(mux)
 }
 
@@ -302,6 +303,24 @@ func (s *Server) deployKey(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"public_key": pub})
+}
+
+// rotateKey generates a new deploy key. The old one keeps working on GitHub
+// until the user removes it, but the app stops using it right away.
+func (s *Server) rotateKey(w http.ResponseWriter, _ *http.Request) {
+	if s.Running() != nil {
+		writeError(w, http.StatusConflict, ErrBusy.Error())
+		return
+	}
+	pub, err := engine.RotateDeployKey(s.opts.StateDir)
+	switch {
+	case errors.Is(err, engine.ErrBusy):
+		writeError(w, http.StatusConflict, err.Error())
+	case err != nil:
+		writeError(w, http.StatusInternalServerError, err.Error())
+	default:
+		writeJSON(w, http.StatusOK, map[string]string{"public_key": pub})
+	}
 }
 
 var githubRepo = regexp.MustCompile(`^(?:git@github\.com:|ssh://git@github\.com/)([^/]+)/(.+?)(?:\.git)?$`)
