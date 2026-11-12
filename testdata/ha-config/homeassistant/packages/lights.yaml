@@ -1,0 +1,4 @@
+input_boolean:
+  entrance_light:
+    name: Entrance light
+    icon: mdi:lightbulb

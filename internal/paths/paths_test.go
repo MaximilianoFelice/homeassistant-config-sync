@@ -27,22 +27,22 @@ func TestClassifyRepoPathWithDefaults(t *testing.T) {
 		reason   Reason
 		boxPath  string
 	}{
-		// Lo que sí entra.
+		// What gets in.
 		{"config/configuration.yaml", true, Both, "", "/homeassistant/configuration.yaml"},
 		{"config/automations.yaml", true, Both, "", "/homeassistant/automations.yaml"},
-		{"config/packages/luces/cocina.yaml", true, Both, "", "/homeassistant/packages/luces/cocina.yaml"},
+		{"config/packages/lights/kitchen.yaml", true, Both, "", "/homeassistant/packages/lights/kitchen.yaml"},
 		{"config/blueprints/automation/x/y.yml", true, Both, "", "/homeassistant/blueprints/automation/x/y.yml"},
 		{"config/esphome/living.yaml", true, Both, "", "/homeassistant/esphome/living.yaml"},
-		{"config/python_scripts/hola.py", true, Both, "", "/homeassistant/python_scripts/hola.py"},
+		{"config/python_scripts/hello.py", true, Both, "", "/homeassistant/python_scripts/hello.py"},
 		{"config/pyscript/apps/a.py", true, Both, "", "/homeassistant/pyscript/apps/a.py"},
 		{"config/custom_templates/macros.jinja", true, Both, "", "/homeassistant/custom_templates/macros.jinja"},
 		{"config/.storage/lovelace", true, PushOnly, "", "/homeassistant/.storage/lovelace"},
-		{"config/.storage/lovelace.dashboard_casa", true, PushOnly, "", "/homeassistant/.storage/lovelace.dashboard_casa"},
+		{"config/.storage/lovelace.dashboard_home", true, PushOnly, "", "/homeassistant/.storage/lovelace.dashboard_home"},
 		{"config/.storage/lovelace_resources", true, PushOnly, "", "/homeassistant/.storage/lovelace_resources"},
 		{"app_configs/core_mosquitto/mosquitto.conf", true, Both, "", "/app_configs/core_mosquitto/mosquitto.conf"},
 		{"app_configs/45df7312_zigbee2mqtt/configuration.yaml", true, Both, "", "/app_configs/45df7312_zigbee2mqtt/configuration.yaml"},
 
-		// Denylist dura: gana sobre la whitelist.
+		// Hard denylist: wins over the whitelist.
 		{"config/secrets.yaml", false, 0, ReasonHardDenied, "/homeassistant/secrets.yaml"},
 		{"config/esphome/secrets.yaml", false, 0, ReasonHardDenied, "/homeassistant/esphome/secrets.yaml"},
 		{"config/Secrets.YAML", false, 0, ReasonHardDenied, "/homeassistant/Secrets.YAML"},
@@ -57,29 +57,29 @@ func TestClassifyRepoPathWithDefaults(t *testing.T) {
 		{"config/.ssh/config.yaml", false, 0, ReasonHardDenied, "/homeassistant/.ssh/config.yaml"},
 		{"config/certs/privkey.pem", false, 0, ReasonHardDenied, "/homeassistant/certs/privkey.pem"},
 
-		// Exclusiones por defecto.
+		// Default exclusions.
 		{"config/custom_components/hacs/manifest.yaml", false, 0, ReasonExcluded, "/homeassistant/custom_components/hacs/manifest.yaml"},
 		{"config/.cache/x.yaml", false, 0, ReasonExcluded, "/homeassistant/.cache/x.yaml"},
 		{"config/deps/x.yaml", false, 0, ReasonExcluded, "/homeassistant/deps/x.yaml"},
 		{"config/esphome/.esphome/build/x.yaml", false, 0, ReasonExcluded, "/homeassistant/esphome/.esphome/build/x.yaml"},
 		{"config/ip_bans.yaml", false, 0, ReasonExcluded, "/homeassistant/ip_bans.yaml"},
-		{"config/python_scripts/__pycache__/hola.py", false, 0, ReasonExcluded, "/homeassistant/python_scripts/__pycache__/hola.py"},
+		{"config/python_scripts/__pycache__/hello.py", false, 0, ReasonExcluded, "/homeassistant/python_scripts/__pycache__/hello.py"},
 
-		// No incluidos.
+		// Not included.
 		{"config/.storage/core.entity_registry", false, 0, ReasonNotIncluded, "/homeassistant/.storage/core.entity_registry"},
 		{"config/go2rtc", false, 0, ReasonNotIncluded, "/homeassistant/go2rtc"},
-		{"config/www/foto.jpg", false, 0, ReasonNotIncluded, "/homeassistant/www/foto.jpg"},
+		{"config/www/photo.jpg", false, 0, ReasonNotIncluded, "/homeassistant/www/photo.jpg"},
 		{"config/.HA_VERSION", false, 0, ReasonNotIncluded, "/homeassistant/.HA_VERSION"},
 		{"app_configs/a0d7b954_vscode/settings.json", false, 0, ReasonNotIncluded, "/app_configs/a0d7b954_vscode/settings.json"},
 
-		// Fuera de los mapeos: es del repo y nunca baja al box.
+		// Outside the mappings: belongs to the repo and never goes down to the box.
 		{"README.md", false, 0, ReasonOutsideMappings, ""},
 		{".github/workflows/ci.yaml", false, 0, ReasonOutsideMappings, ""},
 		{"configuration.yaml", false, 0, ReasonOutsideMappings, ""},
 		{"config", false, 0, ReasonOutsideMappings, ""},
 		{"configx/a.yaml", false, 0, ReasonOutsideMappings, ""},
 
-		// Paths que intentan escaparse.
+		// Paths that try to escape.
 		{"config/../etc/passwd", false, 0, ReasonInvalidPath, ""},
 		{"config/./a.yaml", false, 0, ReasonInvalidPath, ""},
 		{"/config/a.yaml", false, 0, ReasonInvalidPath, ""},
@@ -95,13 +95,13 @@ func TestClassifyRepoPathWithDefaults(t *testing.T) {
 		t.Run(tt.repoPath, func(t *testing.T) {
 			r := m.ClassifyRepoPath(tt.repoPath)
 			if r.Managed != tt.managed || r.Reason != tt.reason {
-				t.Fatalf("managed=%v reason=%q, quería managed=%v reason=%q", r.Managed, r.Reason, tt.managed, tt.reason)
+				t.Fatalf("managed=%v reason=%q, want managed=%v reason=%q", r.Managed, r.Reason, tt.managed, tt.reason)
 			}
 			if r.Managed && r.Direction != tt.dir {
-				t.Errorf("direction=%v, quería %v", r.Direction, tt.dir)
+				t.Errorf("direction=%v, want %v", r.Direction, tt.dir)
 			}
 			if r.BoxPath != tt.boxPath {
-				t.Errorf("boxPath=%q, quería %q", r.BoxPath, tt.boxPath)
+				t.Errorf("boxPath=%q, want %q", r.BoxPath, tt.boxPath)
 			}
 		})
 	}
@@ -130,7 +130,7 @@ func TestClassifyBoxPath(t *testing.T) {
 		t.Run(tt.boxPath, func(t *testing.T) {
 			r := m.ClassifyBoxPath(tt.boxPath)
 			if r.Managed != tt.managed || r.Reason != tt.reason || r.RepoPath != tt.repoPath {
-				t.Errorf("= {managed:%v reason:%q repo:%q}, quería {managed:%v reason:%q repo:%q}",
+				t.Errorf("= {managed:%v reason:%q repo:%q}, want {managed:%v reason:%q repo:%q}",
 					r.Managed, r.Reason, r.RepoPath, tt.managed, tt.reason, tt.repoPath)
 			}
 		})
@@ -146,8 +146,8 @@ func TestPushOnlyWinsOverInclude(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r := m.ClassifyRepoPath("config/lovelace/casa.yaml"); !r.Managed || r.Direction != PushOnly {
-		t.Errorf("quería push-only, dio %+v", r)
+	if r := m.ClassifyRepoPath("config/lovelace/home.yaml"); !r.Managed || r.Direction != PushOnly {
+		t.Errorf("want push-only, got %+v", r)
 	}
 }
 
@@ -155,13 +155,13 @@ func TestExcludeWinsOverPushOnly(t *testing.T) {
 	m, err := New([]config.Mapping{{
 		Repo: "config", Box: "/homeassistant",
 		PushOnly: []string{".storage/lovelace*"},
-		Exclude:  []string{".storage/lovelace.privado"},
+		Exclude:  []string{".storage/lovelace.private"},
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r := m.ClassifyRepoPath("config/.storage/lovelace.privado"); r.Managed || r.Reason != ReasonExcluded {
-		t.Errorf("quería excluido, dio %+v", r)
+	if r := m.ClassifyRepoPath("config/.storage/lovelace.private"); r.Managed || r.Reason != ReasonExcluded {
+		t.Errorf("want excluded, got %+v", r)
 	}
 }
 
@@ -176,7 +176,7 @@ func TestHardDenyCannotBeOverridden(t *testing.T) {
 	}
 	for _, p := range []string{"secrets.yaml", "home-assistant_v2.db", ".storage/auth", ".storage/core.config_entries", "x/id_ed25519", "home-assistant.log"} {
 		if r := m.ClassifyRepoPath("config/" + p); r.Managed {
-			t.Errorf("%s no debería gestionarse nunca: %+v", p, r)
+			t.Errorf("%s should never be managed: %+v", p, r)
 		}
 	}
 }
@@ -193,21 +193,21 @@ func TestPruneDir(t *testing.T) {
 		"sub/.git":                   true,
 		".cloud":                     true,
 		"x/.ssh":                     true,
-		".storage":                   false, // adentro están los lovelace*
+		".storage":                   false, // the lovelace* files are inside
 		"packages":                   false,
 		"esphome":                    false,
 		"python_scripts":             false,
 		"python_scripts/__pycache__": true,
 	} {
 		if got := m.PruneDir(0, dir); got != want {
-			t.Errorf("PruneDir(%q) = %v, quería %v", dir, got, want)
+			t.Errorf("PruneDir(%q) = %v, want %v", dir, got, want)
 		}
 	}
 }
 
 func TestNewRejectsInvalidGlob(t *testing.T) {
 	if _, err := New([]config.Mapping{{Repo: "c", Box: "/c", Include: []string{"[x"}}}); err == nil {
-		t.Error("quería error por glob inválido")
+		t.Error("want an error for an invalid glob")
 	}
 }
 
@@ -217,14 +217,14 @@ func TestRepoAndBoxRoundTrip(t *testing.T) {
 		r := m.ClassifyRepoPath(p)
 		back := m.ClassifyBoxPath(r.BoxPath)
 		if back.RepoPath != p || back.Managed != r.Managed {
-			t.Errorf("ida y vuelta de %q: %+v → %+v", p, r, back)
+			t.Errorf("round trip of %q: %+v → %+v", p, r, back)
 		}
 	}
 }
 
-// FuzzClassifyRepoPath chequea la invariante de seguridad más importante: un
-// path gestionado siempre cae dentro del directorio de su mapeo y nunca está
-// en la denylist dura.
+// FuzzClassifyRepoPath checks the most important safety invariant: a managed
+// path always falls inside its mapping's directory and is never in the hard
+// denylist.
 func FuzzClassifyRepoPath(f *testing.F) {
 	for _, s := range []string{"config/a.yaml", "config/../a.yaml", "config/.storage/lovelace", "app_configs/x/y.yaml", "config/secrets.yaml", "config/a/../../b.yaml"} {
 		f.Add(s)
@@ -237,13 +237,13 @@ func FuzzClassifyRepoPath(f *testing.F) {
 		}
 		mp := m.mappings[r.Mapping]
 		if !strings.HasPrefix(r.BoxPath, mp.Box+"/") {
-			t.Fatalf("%q gestionado fuera de su mapeo: %q", p, r.BoxPath)
+			t.Fatalf("%q managed outside its mapping: %q", p, r.BoxPath)
 		}
 		if HardDenied(r.Rel) {
-			t.Fatalf("%q gestionado pero en la denylist", p)
+			t.Fatalf("%q managed but in the denylist", p)
 		}
 		if path.Clean(p) != p || strings.Contains("/"+p+"/", "/../") || strings.Contains("/"+p+"/", "/.git/") {
-			t.Fatalf("%q gestionado con un path sucio", p)
+			t.Fatalf("%q managed with an unclean path", p)
 		}
 	})
 }

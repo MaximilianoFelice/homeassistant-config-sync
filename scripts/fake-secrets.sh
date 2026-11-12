@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Genera un secrets.yaml falso con todas las claves !secret que usa una
-# config, para poder correr check_config sobre una copia del box (que viaja
-# sin secrets.yaml). No pisa un secrets.yaml existente.
+# Generates a fake secrets.yaml with every !secret key a config uses, so
+# check_config can run on a copy of the box (which travels without
+# secrets.yaml). It does not overwrite an existing secrets.yaml.
 #
-# Los valores son de mentira pero con el tipo que HA suele esperar: números
-# para coordenadas y puertos, URLs para *_url, y strings para el resto.
+# The values are fake but have the type HA usually expects: numbers for
+# coordinates and ports, URLs for *_url, and strings for the rest.
 set -euo pipefail
 
-dir=${1:?uso: scripts/fake-secrets.sh DIR_CONFIG}
+dir=${1:?usage: scripts/fake-secrets.sh CONFIG_DIR}
 out=$dir/secrets.yaml
-[[ -e $out ]] && { echo "ya existe $out: no lo toco" >&2; exit 0; }
+[[ -e $out ]] && { echo "$out already exists: leaving it alone" >&2; exit 0; }
 
 grep -rhoE '!secret[[:space:]]+[A-Za-z0-9_]+' --include='*.yaml' --include='*.yml' "$dir" 2>/dev/null \
   | awk '{print $2}' | sort -u | while read -r k; do
@@ -21,4 +21,4 @@ grep -rhoE '!secret[[:space:]]+[A-Za-z0-9_]+' --include='*.yaml' --include='*.ym
       *) echo "$k: fake-$k" ;;
     esac
   done > "$out"
-echo "secrets.yaml falso con $(grep -c . "$out" || true) claves en $out"
+echo "fake secrets.yaml with $(grep -c . "$out" || true) keys in $out"

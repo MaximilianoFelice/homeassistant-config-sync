@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// Salida real de git 2.53 (capturada a mano) para un merge con un conflicto
-// archivo/directorio, uno de contenido y uno modify/delete.
+// Real git 2.53 output (captured by hand) for a merge with a file/directory
+// conflict, a content conflict and a modify/delete conflict.
 const conflictOutput = "155d1bd036a34706dcd7be90f5e5cf2dcaa9c8c1\x00" +
 	"dir~box\x00f.txt\x00h.txt\x00" +
 	"\x00" +
@@ -27,13 +27,13 @@ func TestParseMergeTreeConflicts(t *testing.T) {
 		t.Errorf("conflicted = %v", res.Conflicted)
 	}
 	if len(res.Messages) != 4 {
-		t.Fatalf("mensajes = %+v", res.Messages)
+		t.Fatalf("messages = %+v", res.Messages)
 	}
 	if m := res.Messages[0]; !slices.Equal(m.Paths, []string{"dir~box", "dir"}) || m.Type != "CONFLICT (file/directory)" {
-		t.Errorf("mensaje 0 = %+v", m)
+		t.Errorf("message 0 = %+v", m)
 	}
 	if m := res.Messages[3]; m.Type != "CONFLICT (modify/delete)" || m.Message[len(m.Message)-1] == '\n' {
-		t.Errorf("mensaje 3 = %+v", m)
+		t.Errorf("message 3 = %+v", m)
 	}
 }
 
@@ -50,7 +50,7 @@ func TestParseMergeTreeClean(t *testing.T) {
 func TestParseMergeTreeRejectsGarbage(t *testing.T) {
 	for _, bad := range []string{"", "\x00", "abc\x00\x00x\x00", "abc\x00\x003\x00a\x00"} {
 		if _, err := parseMergeTree([]byte(bad)); err == nil {
-			t.Errorf("%q debería fallar", bad)
+			t.Errorf("%q should fail", bad)
 		}
 	}
 }

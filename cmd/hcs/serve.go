@@ -17,8 +17,8 @@ import (
 	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/engine"
 )
 
-// cmdServe levanta la API, el scheduler y (opcional) el canal de stdin.
-// Termina con SIGINT/SIGTERM esperando a que el ciclo en curso termine.
+// cmdServe starts the API, the scheduler and (optionally) the stdin channel.
+// On SIGINT/SIGTERM it exits after waiting for the running cycle to finish.
 func cmdServe(g globalFlags, stdout, stderr io.Writer) int {
 	e, cfg, ok := newEngine(g, stderr)
 	if !ok {
@@ -26,7 +26,7 @@ func cmdServe(g globalFlags, stdout, stderr io.Writer) int {
 	}
 	tok, err := engine.APIToken(g.stateDir)
 	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "hcs: no hay token de la API (¿corriste hcs init?):", err)
+		_, _ = fmt.Fprintln(stderr, "hcs: no API token (did you run hcs init?):", err)
 		return exitError
 	}
 	logger := log.New(stdout, "", log.LstdFlags)
@@ -39,10 +39,10 @@ func cmdServe(g globalFlags, stdout, stderr io.Writer) int {
 				state = j.Report.State
 			}
 			if j.Error != "" {
-				logger.Printf("sync %s (%s): %s, estado %s: %s", j.ID, j.Trigger, j.Status, state, j.Error)
+				logger.Printf("sync %s (%s): %s, state %s: %s", j.ID, j.Trigger, j.Status, state, j.Error)
 				return
 			}
-			logger.Printf("sync %s (%s): %s, estado %s", j.ID, j.Trigger, j.Status, state)
+			logger.Printf("sync %s (%s): %s, state %s", j.ID, j.Trigger, j.Status, state)
 		},
 	})
 
@@ -54,7 +54,7 @@ func cmdServe(g globalFlags, stdout, stderr io.Writer) int {
 	httpSrv := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		if err := httpSrv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Printf("la API se cayó: %v", err)
+			logger.Printf("the API went down: %v", err)
 		}
 	}()
 
@@ -62,21 +62,21 @@ func cmdServe(g globalFlags, stdout, stderr io.Writer) int {
 	defer stop()
 
 	interval := time.Duration(cfg.SyncIntervalMinutes) * time.Minute
-	logger.Printf("API en http://%s (token en %s/api_token); sync programado: %s", ln.Addr(), g.stateDir, orManual(interval))
-	go api.RunScheduler(ctx, srv, interval, func() { logger.Print("tick salteado: hay un sync corriendo") })
+	logger.Printf("API at http://%s (token in %s/api_token); scheduled sync: %s", ln.Addr(), g.stateDir, orManual(interval))
+	go api.RunScheduler(ctx, srv, interval, func() { logger.Print("tick skipped: a sync is already running") })
 	if g.stdin {
 		go api.ReadCommands(ctx, os.Stdin, srv,
-			func(cmd string) { logger.Printf("comando de stdin desconocido: %q", cmd) },
-			func() { logger.Print("sync por stdin ignorado: ya hay uno corriendo") })
+			func(cmd string) { logger.Printf("unknown stdin command: %q", cmd) },
+			func() { logger.Print("stdin sync ignored: one is already running") })
 	}
 	if g.syncOnStart {
 		if _, err := srv.Trigger("start", engine.SyncOptions{}); err != nil {
-			logger.Printf("no se pudo lanzar el sync inicial: %v", err)
+			logger.Printf("could not start the initial sync: %v", err)
 		}
 	}
 
 	<-ctx.Done()
-	logger.Print("apagando: espero a que termine el sync en curso")
+	logger.Print("shutting down: waiting for the running sync to finish")
 	shCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = httpSrv.Shutdown(shCtx)
@@ -86,7 +86,7 @@ func cmdServe(g globalFlags, stdout, stderr io.Writer) int {
 
 func orManual(d time.Duration) string {
 	if d <= 0 {
-		return "desactivado (solo manual)"
+		return "disabled (manual only)"
 	}
-	return "cada " + d.String()
+	return "every " + d.String()
 }

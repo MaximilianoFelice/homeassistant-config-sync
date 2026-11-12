@@ -1,26 +1,26 @@
-# Config Sync
+# Git Config Sync
 
-Sincroniza en las dos direcciones la configuración de Home Assistant con un repo git.
+Syncs the Home Assistant configuration with a git repo in both directions.
 
-- Lo que cambia en Home Assistant (UI, editor de archivos) se commitea en la rama `box` y llega a `main`.
-- Lo que se pushea a `main` se aplica solo si pasa el check de config. Si no pasa, se vuelve atrás y te avisa.
-- Si las dos puntas tocaron lo mismo, frena y te avisa. Resolvés el merge como siempre (en tu PC o en GitHub).
-- `secrets.yaml`, las bases de datos, `.storage` (salvo los dashboards) y las claves nunca salen del box.
+- What changes in Home Assistant (UI, file editor) is committed to the `box` branch and reaches `main`.
+- What is pushed to `main` is applied only if it passes the config check. If it does not, the change is rolled back and you get a notification.
+- If both ends touched the same thing, the sync stops and notifies you. You resolve the merge as usual (on your computer or on GitHub).
+- `secrets.yaml`, databases, `.storage` (except dashboards), and keys never leave the box.
 
-## Puesta en marcha
+## Setup
 
-1. Creá un repo (privado) en GitHub.
-2. En **Configuración**, poné `repository: git@github.com:vos/tu-repo.git`.
-3. Arrancá la app. En el **Registro** aparece la deploy key (`ssh-ed25519 …`).
-4. En GitHub: tu repo → Settings → Deploy keys → Add deploy key. Pegala y tildá **Allow write access**.
-5. Listo. Si el repo ya tenía contenido, el primer sync sube la rama `box` y espera a que la revises y la mergees en `main`.
+1. Create a (private) repo on GitHub.
+2. In **Configuration**, set `repository: git@github.com:you/your-repo.git`.
+3. Start the app. The deploy key (`ssh-ed25519 …`) shows up in the **Log**.
+4. On GitHub: your repo → Settings → Deploy keys → Add deploy key. Paste it and check **Allow write access**.
+5. Done. If the repo already had content, the first sync pushes the `box` branch and waits for you to review it and merge it into `main`.
 
-## Disparar un sync a mano
+## Triggering a sync manually
 
-Acción `hassio.addon_stdin` con `addon: local_homeassistant_config_sync` e `input: sync`.
+Action `hassio.addon_stdin` with `addon: local_homeassistant_config_sync` and `input: sync`.
 
-## Estado
+## Status
 
-La app dispara el evento `homeassistant_config_sync` y, cuando hace falta que hagas algo, deja una notificación persistente.
+The app fires the `homeassistant_config_sync` event and, when you need to do something, leaves a persistent notification.
 
-Más detalle en el [diseño](https://github.com/MaximilianoFelice/homeassistant-config-sync/blob/main/docs/design.md).
+More details in the [design](https://github.com/MaximilianoFelice/homeassistant-config-sync/blob/main/docs/design.md).

@@ -1,9 +1,9 @@
-// Package paths decide qué archivos gestiona el motor y traduce entre paths
-// del repo y paths del box (design.md §4 y §5).
+// Package paths decides which files the engine manages and translates between
+// repo paths and box paths (design.md §4 and §5).
 //
-// Todo path del repo se expresa con '/' y relativo a la raíz del repo. Todo
-// path del box es absoluto. La clasificación es pura: no toca el disco
-// (symlinks, tamaño y binarios se resuelven en el escaneo).
+// Every repo path uses '/' and is relative to the repo root. Every box path
+// is absolute. Classification is pure: it does not touch the disk (symlinks,
+// size and binaries are handled by the scan).
 package paths
 
 import (
@@ -18,9 +18,9 @@ import (
 	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/config"
 )
 
-// HardDeny son los patrones que nunca se gestionan, diga lo que diga la
-// configuración. Se evalúan contra el path relativo a la raíz del mapeo, en
-// minúsculas, y en cualquier nivel de profundidad.
+// HardDeny are the patterns that are never managed, whatever the
+// configuration says. They are evaluated against the path relative to the
+// mapping root, lowercased, at any depth.
 var HardDeny = []string{
 	"**/secrets.yaml",
 	"**/secrets.yml",
@@ -47,13 +47,13 @@ var HardDeny = []string{
 	"**/*.log.*",
 }
 
-// Direction indica en qué sentido viaja un path gestionado.
+// Direction tells which way a managed path travels.
 type Direction int
 
 const (
-	// Both: box → repo y repo → box.
+	// Both: box → repo and repo → box.
 	Both Direction = iota
-	// PushOnly: solo box → repo; lo que llega desde main no se aplica.
+	// PushOnly: box → repo only; what comes from main is not applied.
 	PushOnly
 )
 
@@ -64,7 +64,7 @@ func (d Direction) String() string {
 	return "both"
 }
 
-// Reason explica por qué un path no se gestiona.
+// Reason explains why a path is not managed.
 type Reason string
 
 const (
@@ -76,49 +76,48 @@ const (
 	ReasonHardDenied      Reason = "hard_denied"
 )
 
-// Result es la clasificación de un path.
+// Result is the classification of a path.
 type Result struct {
-	// Managed indica si el motor gestiona el path.
+	// Managed says whether the engine manages the path.
 	Managed bool
-	// Direction vale solo si Managed.
+	// Direction is only meaningful if Managed.
 	Direction Direction
-	// Reason vale solo si !Managed.
+	// Reason is only meaningful if !Managed.
 	Reason Reason
-	// Mapping es el índice del mapeo que contiene al path, o -1.
+	// Mapping is the index of the mapping that contains the path, or -1.
 	Mapping int
-	// RepoPath es el path en el repo ('/'), vacío si es inválido.
+	// RepoPath is the path in the repo ('/'), empty if invalid.
 	RepoPath string
-	// BoxPath es el path absoluto en el box, vacío si cae fuera de los mapeos.
+	// BoxPath is the absolute path on the box, empty if outside the mappings.
 	BoxPath string
-	// Rel es el path relativo a la raíz del mapeo ('/').
+	// Rel is the path relative to the mapping root ('/').
 	Rel string
 }
 
-// Matcher clasifica paths según una lista de mapeos ya validada.
+// Matcher classifies paths according to an already validated list of mappings.
 type Matcher struct {
 	mappings []config.Mapping
 }
 
-// New crea un Matcher. Los mapeos tienen que haber pasado Config.Validate;
-// New solo vuelve a chequear los globs, que son lo que podría hacerlo fallar
-// más tarde.
+// New creates a Matcher. The mappings must have passed Config.Validate; New
+// only re-checks the globs, which are what could make it fail later.
 func New(mappings []config.Mapping) (*Matcher, error) {
 	for i, m := range mappings {
 		for _, g := range slices.Concat(m.Include, m.PushOnly, m.Exclude) {
 			if !doublestar.ValidatePattern(g) {
-				return nil, fmt.Errorf("mappings[%d]: glob inválido %q", i, g)
+				return nil, fmt.Errorf("mappings[%d]: invalid glob %q", i, g)
 			}
 		}
 	}
 	return &Matcher{mappings: slices.Clone(mappings)}, nil
 }
 
-// Mappings devuelve los mapeos del Matcher.
+// Mappings returns the Matcher's mappings.
 func (m *Matcher) Mappings() []config.Mapping { return slices.Clone(m.mappings) }
 
-// ClassifyRepoPath clasifica un path del repo. Es la puerta de entrada para
-// todo lo que llega desde main, así que rechaza cualquier path que pudiera
-// escaparse del mapeo.
+// ClassifyRepoPath classifies a repo path. It is the entry point for
+// everything that comes from main, so it rejects any path that could escape
+// the mapping.
 func (m *Matcher) ClassifyRepoPath(repoPath string) Result {
 	if !ValidRepoPath(repoPath) {
 		return Result{Reason: ReasonInvalidPath, Mapping: -1}
@@ -136,7 +135,7 @@ func (m *Matcher) ClassifyRepoPath(repoPath string) Result {
 	return Result{Reason: ReasonOutsideMappings, Mapping: -1, RepoPath: repoPath}
 }
 
-// ClassifyBoxPath clasifica un path absoluto del box.
+// ClassifyBoxPath classifies an absolute box path.
 func (m *Matcher) ClassifyBoxPath(boxPath string) Result {
 	clean := filepath.Clean(boxPath)
 	if !filepath.IsAbs(boxPath) || clean != boxPath {
@@ -172,8 +171,8 @@ func (m *Matcher) classifyRel(i int, rel string) Result {
 		r.Reason = ReasonExcluded
 		return r
 	}
-	// Si un path matchea Include y PushOnly a la vez, gana la dirección más
-	// restrictiva.
+	// If a path matches both Include and PushOnly, the more restrictive
+	// direction wins.
 	switch {
 	case matchAny(mp.PushOnly, rel):
 		r.Managed, r.Direction = true, PushOnly
@@ -185,10 +184,10 @@ func (m *Matcher) classifyRel(i int, rel string) Result {
 	return r
 }
 
-// PruneDir dice si el escaneo puede saltear un directorio entero del mapeo i
-// (relDir relativo a su raíz, con '/'): pasa con los directorios .git y
-// cuando un patrón "X/**" de exclude o de la denylist cubre todo lo de
-// adentro. Ahorra recorrer custom_components, deps, .cache, etc.
+// PruneDir says whether the scan can skip an entire directory of mapping i
+// (relDir relative to its root, with '/'): true for .git directories and when
+// an "X/**" pattern from exclude or the denylist covers everything inside.
+// It saves walking custom_components, deps, .cache, etc.
 func (m *Matcher) PruneDir(i int, relDir string) bool {
 	if strings.EqualFold(path.Base(relDir), ".git") {
 		return true
@@ -196,7 +195,7 @@ func (m *Matcher) PruneDir(i int, relDir string) bool {
 	return dirCovered(HardDeny, strings.ToLower(relDir)) || dirCovered(m.mappings[i].Exclude, relDir)
 }
 
-// dirCovered dice si algún patrón "X/**" cubre a dir o a uno de sus ancestros.
+// dirCovered says whether some "X/**" pattern covers dir or one of its ancestors.
 func dirCovered(globs []string, dir string) bool {
 	for _, g := range globs {
 		prefix, ok := strings.CutSuffix(g, "/**")
@@ -212,16 +211,16 @@ func dirCovered(globs []string, dir string) bool {
 	return false
 }
 
-// HardDenied dice si un path relativo a la raíz de un mapeo cae en la
-// denylist dura. No distingue mayúsculas.
+// HardDenied says whether a path relative to a mapping root falls in the hard
+// denylist. It is case-insensitive.
 func HardDenied(rel string) bool {
 	return matchAny(HardDeny, strings.ToLower(rel))
 }
 
 func matchAny(globs []string, p string) bool {
 	for _, g := range globs {
-		// Los globs ya están validados: un error acá es imposible y, por las
-		// dudas, se trata como "no matchea".
+		// The globs are already validated: an error here is impossible and,
+		// just in case, it is treated as "no match".
 		if ok, err := doublestar.Match(g, p); err == nil && ok {
 			return true
 		}
@@ -229,9 +228,9 @@ func matchAny(globs []string, p string) bool {
 	return false
 }
 
-// ValidRepoPath dice si un path del repo es seguro para escribir en disco:
-// relativo, con '/' como separador, sin componentes vacíos, '.', '..' ni
-// '.git', sin barras invertidas ni bytes de control.
+// ValidRepoPath says whether a repo path is safe to write to disk: relative,
+// with '/' as the separator, with no empty, '.', '..' or '.git' components,
+// and no backslashes or control bytes.
 func ValidRepoPath(p string) bool {
 	if p == "" || strings.HasPrefix(p, "/") || path.Clean(p) != p {
 		return false

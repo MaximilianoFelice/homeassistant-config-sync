@@ -1,11 +1,11 @@
-// Package scan recorre el disco vivo y arma el conjunto de archivos
-// gestionados con su blob de git (design.md §5, "Guards de seguridad del
-// escaneo"). No escribe nada: ni en disco ni en git.
+// Package scan walks the live disk and builds the set of managed files with
+// their git blobs (design.md §5, scan safety guards). It writes nothing:
+// neither to disk nor to git.
 package scan
 
 import (
 	"bytes"
-	"crypto/sha1" //nolint:gosec // es el formato de objetos de git, no un uso criptográfico
+	"crypto/sha1" //nolint:gosec // it is git's object format, not a cryptographic use
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -19,25 +19,25 @@ import (
 	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/paths"
 )
 
-// Modos de git para archivos regulares.
+// Git modes for regular files.
 const (
 	ModeFile = "100644"
 	ModeExec = "100755"
 )
 
-// binarySniff es cuántos bytes se miran para detectar un binario.
+// binarySniff is how many bytes are inspected to detect a binary.
 const binarySniff = 8 << 10
 
-// readAttempts es cuántas veces se intenta leer un archivo que cambia
-// mientras se lee.
+// readAttempts is how many times reading a file that changes while being
+// read is attempted.
 const readAttempts = 3
 
-// racyWindow: un archivo cuyo mtime cae dentro de esta ventana respecto del
-// inicio del escaneo no se guarda en la cache, porque una edición en el mismo
-// tick de reloj podría no cambiar su stat.
+// racyWindow: a file whose mtime falls within this window of the scan start
+// is not stored in the cache, because an edit within the same clock tick
+// might not change its stat.
 const racyWindow = 2 * time.Second
 
-// SkipReason explica por qué un archivo gestionado no entró al snapshot.
+// SkipReason explains why a managed file did not make it into the snapshot.
 type SkipReason string
 
 const (
@@ -49,18 +49,18 @@ const (
 	SkipUnreadable SkipReason = "unreadable"
 )
 
-// Skipped es un path gestionado que se dejó afuera de este escaneo. El
-// snapshot conserva la versión anterior: saltear nunca equivale a borrar.
+// Skipped is a managed path left out of this scan. The snapshot keeps the
+// previous version: skipping never amounts to deleting.
 type Skipped struct {
 	RepoPath string
 	BoxPath  string
 	Reason   SkipReason
-	// Dir indica que se salteó un directorio entero (ilegible): todo lo que
-	// esté debajo de RepoPath conserva su versión anterior.
+	// Dir means an entire (unreadable) directory was skipped: everything
+	// under RepoPath keeps its previous version.
 	Dir bool
 }
 
-// Covers dice si el salteo alcanza a un path del repo.
+// Covers says whether the skip applies to a repo path.
 func (s Skipped) Covers(repoPath string) bool {
 	if s.Dir {
 		return len(repoPath) > len(s.RepoPath) && repoPath[:len(s.RepoPath)+1] == s.RepoPath+"/"
@@ -68,7 +68,7 @@ func (s Skipped) Covers(repoPath string) bool {
 	return repoPath == s.RepoPath
 }
 
-// File es un archivo gestionado presente en el disco vivo.
+// File is a managed file present on the live disk.
 type File struct {
 	RepoPath  string
 	BoxPath   string
@@ -76,24 +76,24 @@ type File struct {
 	OID       string
 	Size      int64
 	Direction paths.Direction
-	// Content es el contenido leído; es nil si el OID salió de la cache.
+	// Content is the content read; it is nil if the OID came from the cache.
 	Content []byte
 }
 
-// Root es el estado de la raíz de un mapeo.
+// Root is the state of a mapping root.
 type Root struct {
 	Mapping int
 	Box     string
-	// Active indica si el mapeo gestiona algo (tiene include o push_only).
+	// Active says whether the mapping manages anything (has include or push_only).
 	Active bool
-	// Exists indica si la raíz existe y es un directorio.
+	// Exists says whether the root exists and is a directory.
 	Exists bool
-	// Managed es cuántos archivos gestionados se encontraron.
+	// Managed is how many managed files were found.
 	Managed int
 }
 
-// CacheEntry guarda el stat de un archivo y su blob, para no re-hashear lo
-// que no cambió entre ciclos.
+// CacheEntry stores a file's stat and its blob, so what did not change
+// between cycles is not re-hashed.
 type CacheEntry struct {
 	Size    int64  `json:"size"`
 	MtimeNs int64  `json:"mtime_ns"`
@@ -103,33 +103,33 @@ type CacheEntry struct {
 	OID     string `json:"oid"`
 }
 
-// Cache indexa CacheEntry por path del repo.
+// Cache indexes CacheEntry by repo path.
 type Cache map[string]CacheEntry
 
-// Result es el resultado de un escaneo.
+// Result is the result of a scan.
 type Result struct {
 	Files   map[string]File
 	Skipped []Skipped
 	Roots   []Root
-	// Cache es la cache nueva, para pasarla al próximo escaneo.
+	// Cache is the new cache, to pass to the next scan.
 	Cache Cache
 }
 
-// Options configura un escaneo.
+// Options configures a scan.
 type Options struct {
 	MaxFileSize int64
 	Cache       Cache
 	Now         func() time.Time
 
-	// afterRead es un hook de tests que corre entre la lectura de un archivo
-	// y el stat de control.
+	// afterRead is a test hook that runs between reading a file and the
+	// control stat.
 	afterRead func(boxPath string, attempt int)
 }
 
-// Scan recorre las raíces de los mapeos activos.
+// Scan walks the roots of the active mappings.
 func Scan(m *paths.Matcher, opts Options) (*Result, error) {
 	if opts.MaxFileSize <= 0 {
-		return nil, errors.New("MaxFileSize tiene que ser mayor que 0")
+		return nil, errors.New("MaxFileSize must be greater than 0")
 	}
 	now := time.Now
 	if opts.Now != nil {
@@ -170,8 +170,8 @@ func (s *scanner) walk(i int, rootDir string, root *Root) error {
 			if p == rootDir {
 				return err
 			}
-			// Un subdirectorio ilegible no frena el escaneo; lo que hubiera
-			// adentro conserva su versión anterior (no se borra).
+			// An unreadable subdirectory does not stop the scan; whatever was
+			// inside keeps its previous version (it is not deleted).
 			r := s.m.ClassifyBoxPath(p)
 			isDir := d != nil && d.IsDir()
 			if r.RepoPath != "" && (isDir || r.Managed) {
@@ -260,10 +260,10 @@ func (s *scanner) file(r paths.Result) {
 	}
 }
 
-var errUnstable = errors.New("el archivo cambió mientras se leía")
+var errUnstable = errors.New("the file changed while it was being read")
 
-// readStable lee un archivo y confirma con un stat posterior que no cambió
-// durante la lectura.
+// readStable reads a file and confirms with a later stat that it did not
+// change during the read.
 func (s *scanner) readStable(p string) ([]byte, stat, error) {
 	for attempt := range readAttempts {
 		fi1, err := os.Lstat(p)
@@ -301,24 +301,23 @@ func statOf(fi fs.FileInfo) stat {
 	return stat{size: fi.Size(), mtimeNs: fi.ModTime().UnixNano(), ctimeNs: ctime, ino: ino}
 }
 
-// BlobOID calcula el OID SHA-1 que git le daría a un blob con ese contenido.
+// BlobOID computes the SHA-1 OID git would give a blob with that content.
 func BlobOID(content []byte) string {
-	h := sha1.New() //nolint:gosec // formato de objetos de git
+	h := sha1.New() //nolint:gosec // git's object format
 	h.Write([]byte("blob " + strconv.Itoa(len(content)) + "\x00"))
 	h.Write(content)
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// ReadVerified vuelve a leer un archivo y confirma que su blob sigue siendo
-// oid. Se usa cuando el escaneo sacó el OID de la cache y hace falta el
-// contenido.
+// ReadVerified re-reads a file and confirms its blob is still oid. It is used
+// when the scan took the OID from the cache and the content is needed.
 func ReadVerified(boxPath, oid string, maxSize int64) ([]byte, error) {
 	fi, err := os.Lstat(boxPath)
 	if err != nil {
 		return nil, err
 	}
 	if !fi.Mode().IsRegular() || fi.Size() > maxSize {
-		return nil, fmt.Errorf("%s ya no es un archivo regular de tamaño válido", boxPath)
+		return nil, fmt.Errorf("%s is no longer a regular file of valid size", boxPath)
 	}
 	content, err := os.ReadFile(boxPath)
 	if err != nil {
@@ -330,5 +329,6 @@ func ReadVerified(boxPath, oid string, maxSize int64) ([]byte, error) {
 	return content, nil
 }
 
-// IsUnstable dice si un error vino de un archivo que cambió durante la lectura.
+// IsUnstable says whether an error came from a file that changed while it
+// was being read.
 func IsUnstable(err error) bool { return errors.Is(err, errUnstable) }

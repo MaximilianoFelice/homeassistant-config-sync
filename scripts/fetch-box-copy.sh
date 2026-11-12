@@ -1,31 +1,31 @@
 #!/usr/bin/env bash
-# Trae una copia de la config del box a un directorio local, en modo
-# lectura: en el box solo corre `tar -c` hacia stdout, no escribe nada.
+# Fetches a copy of the box's config into a local directory, read-only: on
+# the box only `tar -c` to stdout runs, nothing is written.
 #
-# Lo sensible y lo pesado se excluye EN EL BOX, así ni siquiera viaja:
-# la denylist dura del motor (secrets.yaml, DBs, .storage/auth…, claves,
-# logs), los directorios .git (un clon puede tener credenciales en
-# .git/config), .cache, backups, tts, deps y todo .storage salvo lovelace*.
+# Sensitive and heavy content is excluded ON THE BOX, so it never travels:
+# the engine's hard denylist (secrets.yaml, DBs, .storage/auth…, keys,
+# logs), .git directories (a clone may have credentials in .git/config),
+# .cache, backups, tts, deps and all of .storage except lovelace*.
 #
-# Uso: scripts/fetch-box-copy.sh [DESTINO] [HOST_SSH]
-#   DESTINO   default .sandbox/e2e/box  (queda con homeassistant/ y addon_configs/)
-#   HOST_SSH  host SSH del box (obligatorio; por ejemplo, el add-on de SSH)
+# Usage: scripts/fetch-box-copy.sh [DEST] [SSH_HOST]
+#   DEST      default .sandbox/e2e/box  (ends up with homeassistant/ and addon_configs/)
+#   SSH_HOST  SSH host of the box (required; for example, the SSH add-on)
 set -euo pipefail
 
 dest=${1:-.sandbox/e2e/box}
-host=${2:?falta HOST_SSH}
+host=${2:?missing SSH_HOST}
 
 excludes=(
-  # denylist dura (internal/paths.HardDeny), en sintaxis de busybox tar
+  # hard denylist (internal/paths.HardDeny), in busybox tar syntax
   '*secrets.yaml' '*secrets.yml'
   '*.db' '*.db-shm' '*.db-wal' '*.db-journal' '*.sqlite*'
   '*/.cloud' '*/.ssh'
   '*id_rsa*' '*id_dsa*' '*id_ecdsa*' '*id_ed25519*'
   '*.pem' '*.key' '*.p12' '*.pfx'
   '*.log' '*.log.*'
-  # nunca: historia de git (puede tener credenciales) y estado interno de HA
+  # never: git history (may have credentials) and HA's internal state
   '*/.git' '*/.storage'
-  # pesado e irrelevante para el sync
+  # heavy and irrelevant to the sync
   'homeassistant/.cache' 'homeassistant/backups' 'homeassistant/tts' 'homeassistant/deps'
 )
 args=()
@@ -36,20 +36,20 @@ done
 rm -rf "$dest"
 mkdir -p "$dest/homeassistant" "$dest/addon_configs"
 
-# /homeassistant sin .storage, y aparte solo .storage/lovelace*.
-# shellcheck disable=SC2029 # los args se expanden acá a propósito
+# /homeassistant without .storage, and separately only .storage/lovelace*.
+# shellcheck disable=SC2029 # the args are expanded here on purpose
 ssh "$host" "cd / && tar -cf - ${args[*]} homeassistant" | tar -xf - -C "$dest"
 ssh "$host" 'cd / && ls homeassistant/.storage/lovelace* >/dev/null 2>&1 && tar -cf - homeassistant/.storage/lovelace* || true' | tar -xf - -C "$dest" 2>/dev/null || true
 
-# /app_configs (así se llama en el add-on de SSH) → addon_configs/ (como en la app).
+# /app_configs (its name in the SSH add-on) → addon_configs/ (as in the app).
 ssh "$host" "cd /app_configs && tar -cf - ${args[*]} ." | tar -xf - -C "$dest/addon_configs"
 
-# Chequeo defensivo: nada de la denylist llegó.
+# Defensive check: nothing from the denylist arrived.
 if find "$dest" \( -name 'secrets.yaml' -o -name '*.db' -o -name '.git' -o -name 'auth' -o -name 'core.config_entries' \) | grep -q .; then
-  echo "ERROR: llegó algo que no debía:" >&2
+  echo "ERROR: something that should not have arrived did:" >&2
   find "$dest" \( -name 'secrets.yaml' -o -name '*.db' -o -name '.git' -o -name 'auth' -o -name 'core.config_entries' \) >&2
   rm -rf "$dest"
   exit 1
 fi
 
-echo "copia en $dest: $(find "$dest" -type f | wc -l) archivos, $(du -sh "$dest" | cut -f1)"
+echo "copy in $dest: $(find "$dest" -type f | wc -l) files, $(du -sh "$dest" | cut -f1)"

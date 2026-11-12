@@ -1,16 +1,16 @@
 - id: "1000000000001"
-  alias: Encender luz de la entrada al anochecer
+  alias: Turn on the entrance light at sunset
   triggers:
     - trigger: sun
       event: sunset
   actions:
     - action: input_boolean.turn_on
       target:
-        entity_id: input_boolean.luz_entrada
+        entity_id: input_boolean.entrance_light
 - id: "1000000000002"
-  alias: Apagar todo a la noche
+  alias: Turn everything off at night
   triggers:
     - trigger: time
       at: "23:30:00"
   actions:
-    - action: script.apagar_todo
+    - action: script.turn_off_everything

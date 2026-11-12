@@ -1,6 +1,6 @@
-// Package config define el esquema de configuración del motor. Es el mismo
-// esquema que /data/options.json de la app, así el CLI del v0 y la app del v1
-// leen exactamente lo mismo. Ver docs/design.md §13.
+// Package config defines the engine's configuration schema. It is the same
+// schema as the app's /data/options.json, so the v0 CLI and the v1 app read
+// exactly the same thing. See docs/design.md §13.
 package config
 
 import (
@@ -14,14 +14,14 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// Modos de sync (design.md §6).
+// Sync modes (design.md §6).
 const (
 	ModeBidirectional = "bidirectional"
 	ModePushOnly      = "push_only"
 	ModePullOnly      = "pull_only"
 )
 
-// Políticas de reload y restart (design.md §7).
+// Reload and restart policies (design.md §7).
 const (
 	ReloadAuto = "auto"
 	ReloadNone = "none"
@@ -30,25 +30,25 @@ const (
 	RestartAuto  = "auto"
 )
 
-// Qué hacer con los warnings de check_config (design.md §7). HA reporta
-// como warning una integración con config inválida: arranca igual, pero sin
-// esa integración.
+// What to do with check_config warnings (design.md §7). HA reports an
+// integration with an invalid config as a warning: it still starts, but
+// without that integration.
 const (
-	// WarningsNew rechaza si el cambio agrega warnings que antes no estaban.
+	// WarningsNew rejects if the change adds warnings that were not there before.
 	WarningsNew = "new"
-	// WarningsAny rechaza ante cualquier warning.
+	// WarningsAny rejects on any warning.
 	WarningsAny = "any"
-	// WarningsIgnore solo mira los errores.
+	// WarningsIgnore only looks at errors.
 	WarningsIgnore = "ignore"
 )
 
-// Severidad de la regla de webhook_id del escáner de secretos (design.md §8).
+// Severity of the secret scanner's webhook_id rule (design.md §8).
 const (
 	SeverityWarn  = "warn"
 	SeverityBlock = "block"
 )
 
-// Config es la configuración completa del motor.
+// Config is the engine's full configuration.
 type Config struct {
 	Repository          string     `yaml:"repository"`
 	MainBranch          string     `yaml:"main_branch"`
@@ -68,35 +68,35 @@ type Config struct {
 	SecretScan          SecretScan `yaml:"secret_scan"`
 }
 
-// Mapping vincula un prefijo del repo con un directorio del box
-// (design.md §4) y define qué paths de ese directorio se gestionan (§5).
+// Mapping links a repo prefix to a box directory (design.md §4) and defines
+// which paths of that directory are managed (§5).
 //
-// Las tres listas son de strings (y no de objetos con dirección) para que el
-// esquema de opciones del Supervisor pueda validarlas.
+// The three lists are strings (rather than objects with a direction) so the
+// Supervisor's options schema can validate them.
 type Mapping struct {
-	// Repo es el prefijo dentro del repo, sin barras al principio ni al final.
+	// Repo is the prefix inside the repo, with no leading or trailing slashes.
 	Repo string `yaml:"repo"`
-	// Box es el directorio absoluto en el box.
+	// Box is the absolute directory on the box.
 	Box string `yaml:"box"`
-	// Include son los globs que se sincronizan en las dos direcciones.
+	// Include are the globs synced in both directions.
 	Include []string `yaml:"include"`
-	// PushOnly son los globs que solo viajan del box al repo.
+	// PushOnly are the globs that only travel from the box to the repo.
 	PushOnly []string `yaml:"push_only"`
-	// Exclude saca paths de Include y de PushOnly.
+	// Exclude removes paths from Include and PushOnly.
 	Exclude []string `yaml:"exclude"`
-	// Check indica si un cambio aplicado en este mapeo tiene que pasar el
-	// check_config de Home Assistant (design.md §7).
+	// Check says whether a change applied in this mapping must pass Home
+	// Assistant's check_config (design.md §7).
 	Check bool `yaml:"check"`
 }
 
-// SecretScan configura el escáner de secretos (design.md §8).
+// SecretScan configures the secret scanner (design.md §8).
 type SecretScan struct {
 	WebhookID string   `yaml:"webhook_id"`
 	Allow     []string `yaml:"allow"`
 }
 
-// Default devuelve la configuración por defecto. Repository queda vacío
-// porque no tiene un default razonable.
+// Default returns the default configuration. Repository is left empty
+// because it has no sensible default.
 func Default() *Config {
 	return &Config{
 		MainBranch:          "main",
@@ -115,9 +115,9 @@ func Default() *Config {
 	}
 }
 
-// DefaultMappings devuelve los mapeos por defecto: config/ → /homeassistant
-// con la whitelist segura, y app_configs/ → /app_configs vacío (hay que
-// elegir apps explícitamente).
+// DefaultMappings returns the default mappings: config/ → /homeassistant
+// with the safe whitelist, and app_configs/ → /app_configs empty (apps have
+// to be chosen explicitly).
 func DefaultMappings() []Mapping {
 	return []Mapping{
 		{
@@ -155,17 +155,16 @@ func DefaultMappings() []Mapping {
 	}
 }
 
-// Load lee la configuración desde un archivo YAML o JSON (JSON es YAML
-// válido, así que options.json del Supervisor se lee igual). Los campos
-// ausentes conservan su default. Las claves desconocidas son un error, para
-// que un typo no pase desapercibido. Los paths Box relativos se resuelven
-// contra el directorio del archivo.
+// Load reads the configuration from a YAML or JSON file (JSON is valid YAML,
+// so the Supervisor's options.json reads the same way). Missing fields keep
+// their default. Unknown keys are an error, so a typo does not go unnoticed.
+// Relative Box paths are resolved against the file's directory.
 //
-// Load no valida: eso lo hace Validate.
+// Load does not validate: Validate does that.
 func Load(path string) (*Config, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("leyendo la config: %w", err)
+		return nil, fmt.Errorf("reading the config: %w", err)
 	}
 	cfg, err := Parse(b)
 	if err != nil {
@@ -183,7 +182,7 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
-// Parse decodifica la configuración sobre los defaults.
+// Parse decodes the configuration on top of the defaults.
 func Parse(b []byte) (*Config, error) {
 	cfg := Default()
 	dec := yaml.NewDecoder(bytes.NewReader(b))

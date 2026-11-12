@@ -1,6 +1,7 @@
-// Package merge implementa el paso 3 del ciclo (design.md §6): combinar la
-// rama box con main y decidir qué commit R hay que aplicar al box y
-// publicar. No toca el disco ni mueve refs: solo crea objetos en el repo.
+// Package merge implements step 3 of the cycle (design.md §6): combine the
+// box branch with main and decide which commit R to apply to the box and
+// publish. It does not touch the disk or move refs: it only creates objects
+// in the repo.
 package merge
 
 import (
@@ -15,70 +16,70 @@ import (
 	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/gitx"
 )
 
-// Kind es el caso de merge que se dio.
+// Kind is the merge case that occurred.
 type Kind string
 
 const (
-	// UpToDate: box y main son el mismo commit. R = box.
+	// UpToDate: box and main are the same commit. R = box.
 	UpToDate Kind = "up_to_date"
-	// FastForwardMain: main no existe o es ancestro de box (solo cambió el
-	// box). R = box; main avanza por fast-forward.
+	// FastForwardMain: main does not exist or is an ancestor of box (only the
+	// box changed). R = box; main advances by fast-forward.
 	FastForwardMain Kind = "ff_main"
-	// FastForwardBox: box es ancestro de main (solo cambió main). R = main,
-	// o un commit sobre main si hubo que conservar paths push_only.
+	// FastForwardBox: box is an ancestor of main (only main changed). R = main,
+	// or a commit on top of main if push_only paths had to be kept.
 	FastForwardBox Kind = "ff_box"
-	// Merged: las dos ramas cambiaron y el merge salió limpio. R es un
-	// commit de merge con padres [main, box].
+	// Merged: both branches changed and the merge was clean. R is a
+	// merge commit with parents [main, box].
 	Merged Kind = "merged"
-	// Conflict: el merge tiene conflictos que no se resuelven solos. No hay R.
+	// Conflict: the merge has conflicts that do not resolve on their own. No R.
 	Conflict Kind = "conflict"
 )
 
-// autoResolvable son los tipos de conflicto que se pueden resolver solos
-// cuando todos sus paths son del box (push_only). Los conflictos de
-// estructura (archivo/directorio, renombres) siempre frenan, porque git deja
-// paths auxiliares en el árbol.
+// autoResolvable are the conflict types that can resolve on their own
+// when all their paths belong to the box (push_only). Structural conflicts
+// (file/directory, renames) always stop, because git leaves auxiliary
+// paths in the tree.
 var autoResolvable = []string{
 	"CONFLICT (contents)",
 	"CONFLICT (add/add)",
 	"CONFLICT (modify/delete)",
 }
 
-// ConflictInfo describe un conflicto.
+// ConflictInfo describes a conflict.
 type ConflictInfo struct {
 	Paths   []string
 	Type    string
 	Message string
 }
 
-// Options configura un merge.
+// Options configures a merge.
 type Options struct {
-	// BoxWins dice si un path es autoritativo del box (push_only): en R
-	// siempre queda la versión de box, sea cual sea el caso de merge.
+	// BoxWins reports whether a path is box-authoritative (push_only): R
+	// always keeps the box version, whatever the merge case.
 	BoxWins func(repoPath string) bool
 	Now     func() time.Time
 }
 
-// Result es el resultado de un merge.
+// Result is the result of a merge.
 type Result struct {
 	Kind Kind
 	Box  string
 	Main string
-	// R es el commit a aplicar y publicar; vacío si hubo conflicto.
+	// R is the commit to apply and publish; empty on conflict.
 	R string
-	// ConflictPaths son los paths en conflicto, ordenados y sin repetir.
+	// ConflictPaths are the conflicted paths, sorted and deduplicated.
 	ConflictPaths []string
 	Conflicts     []ConflictInfo
-	// Overridden son los paths push_only en los que se descartó lo que traía
-	// main para quedarse con la versión del box.
+	// Overridden are the push_only paths where main's version was discarded
+	// to keep the box version.
 	Overridden []string
 }
 
-// Merge combina box con main. box tiene que existir; main puede ser ""
-// (remoto vacío).
+// Merge combines box with main. box must exist; main may be ""
+// (empty remote).
 func Merge(ctx context.Context, repo *gitx.Repo, box, main string, opts Options) (*Result, error) {
 	if box == "" {
-		return nil, errors.New("merge: la rama box no existe")
+		return nil, errors.New("merge: the box branch does not exist")
 	}
 	res := &Result{Box: box, Main: main}
 
@@ -109,7 +110,7 @@ func Merge(ctx context.Context, repo *gitx.Repo, box, main string, opts Options)
 		}
 	} else {
 		res.Kind = Merged
-		// ours = main, theirs = box: el primer padre del merge es main.
+		// ours = main, theirs = box: the merge's first parent is main.
 		mt, err := repo.MergeTree(ctx, main, box)
 		if err != nil {
 			return nil, err
@@ -120,8 +121,8 @@ func Merge(ctx context.Context, repo *gitx.Repo, box, main string, opts Options)
 				res.Kind = Conflict
 				return res, nil
 			}
-			// Todos los conflictos son de paths push_only: los resuelve el
-			// override de abajo con la versión del box.
+			// All conflicts are on push_only paths: the override below
+			// resolves them with the box version.
 			res.Conflicts, res.ConflictPaths = nil, nil
 		}
 		tree = mt.Tree
@@ -144,9 +145,9 @@ func Merge(ctx context.Context, repo *gitx.Repo, box, main string, opts Options)
 			res.R = main
 			return res, nil
 		}
-		res.R, err = repo.CommitTree(ctx, tree, []string{main}, message("box: conserva paths push_only sobre main", res.Overridden), id, id)
+		res.R, err = repo.CommitTree(ctx, tree, []string{main}, message("box: keep push_only paths over main", res.Overridden), id, id)
 	case Merged:
-		res.R, err = repo.CommitTree(ctx, tree, []string{main, box}, message("Merge box en main", res.Overridden), id, id)
+		res.R, err = repo.CommitTree(ctx, tree, []string{main, box}, message("Merge box into main", res.Overridden), id, id)
 	}
 	if err != nil {
 		return nil, err
@@ -191,7 +192,7 @@ func resolvable(res *Result, boxWins func(string) bool) bool {
 	return true
 }
 
-// overrideBoxWins deja en tree la versión de box de cada path push_only.
+// overrideBoxWins puts the box version of every push_only path into tree.
 func overrideBoxWins(ctx context.Context, repo *gitx.Repo, box, tree string, boxWins func(string) bool) (string, []string, error) {
 	if boxWins == nil {
 		return tree, nil, nil
@@ -227,7 +228,7 @@ func overrideBoxWins(ctx context.Context, repo *gitx.Repo, box, tree string, box
 		}
 		delete(inBox, e.Path)
 	}
-	for p, b := range inBox { // están en box y main los borró
+	for p, b := range inBox { // in box, deleted by main
 		updates = append(updates, gitx.IndexUpdate{Path: p, Mode: b.Mode, OID: b.OID})
 		overridden = append(overridden, p)
 	}
@@ -237,7 +238,7 @@ func overrideBoxWins(ctx context.Context, repo *gitx.Repo, box, tree string, box
 	sort.Strings(overridden)
 	newTree, err := repo.BuildTree(ctx, tree, updates)
 	if err != nil {
-		return "", nil, fmt.Errorf("conservando paths push_only: %w", err)
+		return "", nil, fmt.Errorf("keeping push_only paths: %w", err)
 	}
 	return newTree, overridden, nil
 }
@@ -246,7 +247,7 @@ func message(title string, overridden []string) string {
 	var b strings.Builder
 	b.WriteString(title + "\n")
 	if len(overridden) > 0 {
-		b.WriteString("\nPaths push_only que conservan la versión del box:\n")
+		b.WriteString("\npush_only paths that keep the box version:\n")
 		for _, p := range overridden {
 			b.WriteString("  " + p + "\n")
 		}

@@ -9,72 +9,72 @@ import (
 	"strings"
 )
 
-// scpLike matchea la sintaxis corta de SSH de git: [user@]host:path, donde no
-// hay ninguna barra antes del primer ':'.
+// scpLike matches git's short SSH syntax: [user@]host:path, with no slash
+// before the first ':'.
 var scpLike = regexp.MustCompile(`^(?:([^@/:\s]+)@)?([^@/:\s]+):([^\s].*)$`)
 
-// ValidateRepoURL acepta solo remotos SSH (design.md §9): git@host:owner/repo
-// o ssh://[user@]host[:port]/path. Rechaza HTTP(S), git://, credenciales
-// embebidas, transportes de remote helpers (<transport>::<address>) y
-// cualquier cosa que git pueda interpretar como una opción.
+// ValidateRepoURL accepts only SSH remotes (design.md §9): git@host:owner/repo
+// or ssh://[user@]host[:port]/path. It rejects HTTP(S), git://, embedded
+// credentials, remote-helper transports (<transport>::<address>) and anything
+// git could interpret as an option.
 //
-// Con allowFile también acepta file:// y paths absolutos (v0 y tests).
+// With allowFile it also accepts file:// and absolute paths (v0 and tests).
 func ValidateRepoURL(raw string, allowFile bool) error {
 	if raw == "" {
-		return errors.New("está vacío")
+		return errors.New("is empty")
 	}
 	if strings.TrimSpace(raw) != raw || strings.ContainsAny(raw, "\x00\n\r\t") {
-		return errors.New("tiene espacios o caracteres de control")
+		return errors.New("contains whitespace or control characters")
 	}
 	if strings.HasPrefix(raw, "-") {
-		return errors.New("no puede empezar con '-'")
+		return errors.New("cannot start with '-'")
 	}
 	if strings.Contains(raw, "::") {
-		return errors.New("los transportes <transport>::<address> no están permitidos")
+		return errors.New("<transport>::<address> transports are not allowed")
 	}
 
 	if strings.Contains(raw, "://") {
 		u, err := url.Parse(raw)
 		if err != nil {
-			return fmt.Errorf("no es una URL válida: %w", err)
+			return fmt.Errorf("not a valid URL: %w", err)
 		}
 		switch strings.ToLower(u.Scheme) {
 		case "ssh":
 			if _, hasPass := u.User.Password(); hasPass {
-				return errors.New("no puede llevar contraseña embebida: usá la deploy key")
+				return errors.New("cannot contain an embedded password: use the deploy key")
 			}
 			if u.Hostname() == "" || strings.HasPrefix(u.Hostname(), "-") {
-				return errors.New("host inválido")
+				return errors.New("invalid host")
 			}
 			if u.Path == "" || u.Path == "/" {
-				return errors.New("falta el path del repo")
+				return errors.New("missing the repo path")
 			}
 			return nil
 		case "file":
 			if !allowFile {
-				return errors.New("file:// solo se permite con --allow-file-remote")
+				return errors.New("file:// is only allowed with --allow-file-remote")
 			}
 			return nil
 		case "http", "https":
-			return errors.New("HTTP(S) no está permitido: usá SSH con una deploy key (git@host:owner/repo.git)")
+			return errors.New("HTTP(S) is not allowed: use SSH with a deploy key (git@host:owner/repo.git)")
 		default:
-			return fmt.Errorf("protocolo %q no permitido: solo SSH", u.Scheme)
+			return fmt.Errorf("protocol %q not allowed: SSH only", u.Scheme)
 		}
 	}
 
 	if filepath.IsAbs(raw) {
 		if !allowFile {
-			return errors.New("los paths locales solo se permiten con --allow-file-remote")
+			return errors.New("local paths are only allowed with --allow-file-remote")
 		}
 		return nil
 	}
 
 	m := scpLike.FindStringSubmatch(raw)
 	if m == nil {
-		return errors.New("formato no reconocido: esperaba git@host:owner/repo.git o ssh://host/path")
+		return errors.New("unrecognized format: expected git@host:owner/repo.git or ssh://host/path")
 	}
 	if strings.HasPrefix(m[2], "-") {
-		return errors.New("host inválido")
+		return errors.New("invalid host")
 	}
 	return nil
 }

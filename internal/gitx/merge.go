@@ -9,10 +9,10 @@ import (
 	"strconv"
 )
 
-// ErrUnrelated indica que dos commits no tienen historia en común.
-var ErrUnrelated = errors.New("las historias no tienen ningún commit en común")
+// ErrUnrelated means two commits share no history.
+var ErrUnrelated = errors.New("the histories have no commit in common")
 
-// IsAncestor dice si a es ancestro de b (o igual).
+// IsAncestor reports whether a is an ancestor of b (or equal).
 func (r *Repo) IsAncestor(ctx context.Context, a, b string) (bool, error) {
 	_, err := r.run(ctx, nil, "merge-base", "--is-ancestor", a, b)
 	if err == nil {
@@ -24,8 +24,8 @@ func (r *Repo) IsAncestor(ctx context.Context, a, b string) (bool, error) {
 	return false, err
 }
 
-// MergeMessage es un mensaje informativo de merge-tree sobre uno o más
-// paths. Type es estable entre versiones de git: "Auto-merging",
+// MergeMessage is an informational merge-tree message about one or more
+// paths. Type is stable across git versions: "Auto-merging",
 // "CONFLICT (contents)", "CONFLICT (modify/delete)", etc.
 type MergeMessage struct {
 	Paths   []string
@@ -33,20 +33,20 @@ type MergeMessage struct {
 	Message string
 }
 
-// MergeTreeResult es el resultado de git merge-tree --write-tree.
+// MergeTreeResult is the result of git merge-tree --write-tree.
 type MergeTreeResult struct {
-	// Tree es el árbol resultante. Con conflictos, tiene los marcadores de
-	// conflicto adentro de los archivos.
+	// Tree is the resulting tree. With conflicts, it has the conflict
+	// markers inside the files.
 	Tree string
-	// Clean indica que no hubo conflictos.
+	// Clean means there were no conflicts.
 	Clean bool
-	// Conflicted son los paths con conflicto, como los lista git.
+	// Conflicted are the conflicted paths, as git lists them.
 	Conflicted []string
 	Messages   []MergeMessage
 }
 
-// MergeTree hace un merge de 3 vías entre ours y theirs sin tocar ningún
-// working tree ni ref (git >= 2.38).
+// MergeTree does a 3-way merge between ours and theirs without touching any
+// working tree or ref (git >= 2.38).
 func (r *Repo) MergeTree(ctx context.Context, ours, theirs string) (*MergeTreeResult, error) {
 	out, err := r.run(ctx, nil, "merge-tree", "--write-tree", "-z", "--name-only", "--messages", ours, theirs)
 	clean := err == nil
@@ -58,8 +58,8 @@ func (r *Repo) MergeTree(ctx context.Context, ours, theirs string) (*MergeTreeRe
 			}
 			return nil, err
 		}
-		// Exit 1 = hubo conflictos; la salida igual es válida. Hay que
-		// recuperarla del error, porque run solo la devuelve en éxito.
+		// Exit 1 = there were conflicts; the output is still valid. It has
+		// to be recovered from the error, because run only returns it on success.
 		var ge *Error
 		if !errors.As(err, &ge) {
 			return nil, err
@@ -74,34 +74,34 @@ func (r *Repo) MergeTree(ctx context.Context, ours, theirs string) (*MergeTreeRe
 	return res, nil
 }
 
-// parseMergeTree parsea la salida -z --name-only:
+// parseMergeTree parses the -z --name-only output:
 //
 //	<tree> NUL
-//	[<path> NUL]...           (paths en conflicto)
+//	[<path> NUL]...           (conflicted paths)
 //	NUL
-//	[<n> NUL <path>{n} NUL <tipo> NUL <mensaje> NUL]...
+//	[<n> NUL <path>{n} NUL <type> NUL <message> NUL]...
 //
-// En un merge limpio la salida es solo "<tree> NUL" (las secciones
-// siguientes pueden faltar).
+// In a clean merge the output is only "<tree> NUL" (the following
+// sections may be missing).
 func parseMergeTree(out []byte) (*MergeTreeResult, error) {
 	fields := bytes.Split(out, []byte{0})
-	// El último campo es lo que viene después del último NUL: vacío.
+	// The last field is what comes after the last NUL: empty.
 	if len(fields) > 0 && len(fields[len(fields)-1]) == 0 {
 		fields = fields[:len(fields)-1]
 	}
 	if len(fields) == 0 || len(fields[0]) == 0 {
-		return nil, fmt.Errorf("merge-tree: salida vacía")
+		return nil, fmt.Errorf("merge-tree: empty output")
 	}
 	res := &MergeTreeResult{Tree: string(fields[0])}
 	i := 1
 	for ; i < len(fields) && len(fields[i]) > 0; i++ {
 		res.Conflicted = append(res.Conflicted, string(fields[i]))
 	}
-	i++ // separador vacío
+	i++ // empty separator
 	for i < len(fields) {
 		n, err := strconv.Atoi(string(fields[i]))
 		if err != nil || n < 0 || i+1+n+2 > len(fields) {
-			return nil, fmt.Errorf("merge-tree: mensaje mal formado en el campo %d", i)
+			return nil, fmt.Errorf("merge-tree: malformed message at field %d", i)
 		}
 		i++
 		var m MergeMessage

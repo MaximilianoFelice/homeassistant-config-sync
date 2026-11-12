@@ -1,7 +1,7 @@
-// Package apply implementa el paso 4 del ciclo (design.md §7): llevar el
-// disco vivo del árbol de B (box) al de R (resultado del merge), con
-// pre-check de sintaxis, compare-and-swap por path, write-ahead journal,
-// escritura atómica, check de config y rollback.
+// Package apply implements step 4 of the cycle (design.md §7): take the
+// live disk from the tree of B (box) to that of R (the merge result), with
+// a syntax pre-check, per-path compare-and-swap, a write-ahead journal,
+// atomic writes, a config check and rollback.
 package apply
 
 import (
@@ -12,8 +12,8 @@ import (
 	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/paths"
 )
 
-// Op es una operación sobre un path del box. Un OID vacío significa "no
-// existe": OldOID vacío es un archivo nuevo y NewOID vacío es un borrado.
+// Op is an operation on a box path. An empty OID means "does not exist":
+// an empty OldOID is a new file and an empty NewOID is a deletion.
 type Op struct {
 	RepoPath string `json:"repo_path"`
 	BoxPath  string `json:"box_path"`
@@ -22,25 +22,25 @@ type Op struct {
 	OldMode  string `json:"old_mode,omitempty"`
 	NewOID   string `json:"new_oid,omitempty"`
 	NewMode  string `json:"new_mode,omitempty"`
-	// OldPerm son los permisos que tenía el archivo en disco antes del apply,
-	// para restaurarlos en un rollback (se completa durante el CAS).
+	// OldPerm is the file's on-disk permissions before the apply, to restore
+	// them on rollback (filled in during the CAS).
 	OldPerm uint32 `json:"old_perm,omitempty"`
 }
 
-// IsDelete dice si la operación borra el path.
+// IsDelete reports whether the operation deletes the path.
 func (o Op) IsDelete() bool { return o.NewOID == "" }
 
-// Motivos por los que un cambio de R no se aplica al box. Además de estos,
-// Ignored.Reason puede ser cualquier paths.Reason.
+// Reasons why a change in R is not applied to the box. Besides these,
+// Ignored.Reason can be any paths.Reason.
 const ReasonPushOnly = "push_only"
 
-// Ignored es un path que cambió entre B y R pero no se aplica al box.
+// Ignored is a path that changed between B and R but is not applied to the box.
 type Ignored struct {
 	RepoPath string `json:"repo_path"`
 	Reason   string `json:"reason"`
 }
 
-// Plan es lo que haría un apply, calculado solo desde git.
+// Plan is what an apply would do, computed from git alone.
 type Plan struct {
 	From    string    `json:"from"`
 	To      string    `json:"to"`
@@ -48,10 +48,10 @@ type Plan struct {
 	Ignored []Ignored `json:"ignored,omitempty"`
 }
 
-// MakePlan compara los árboles de from (B) y to (R) y arma las operaciones
-// sobre los paths gestionados en las dos direcciones. Primero van los
-// borrados (de lo más profundo a lo más alto) y después las escrituras, para
-// que un path que pasa de archivo a directorio, o al revés, no choque.
+// MakePlan compares the trees of from (B) and to (R) and builds the
+// operations on paths managed in both directions. Deletions come first
+// (deepest to shallowest) and then writes, so that a path that turns from
+// file into directory, or the other way, does not collide.
 func MakePlan(ctx context.Context, repo *gitx.Repo, m *paths.Matcher, from, to string) (*Plan, error) {
 	fromEntries, err := repo.LsTree(ctx, from)
 	if err != nil {

@@ -1,7 +1,7 @@
-name: Config Sync
+name: Git Config Sync
 version: "0.1.0-dev"
 slug: homeassistant_config_sync
-description: Sync bidireccional de la configuración de Home Assistant con un repo git (solo SSH, con check de config)
+description: Two-way sync of the Home Assistant configuration with a git repo (SSH only, with config check)
 url: https://github.com/MaximilianoFelice/homeassistant-config-sync
 arch:
   - aarch64

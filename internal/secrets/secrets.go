@@ -1,9 +1,9 @@
-// Package secrets es el escáner de secretos que corre antes de commitear un
-// snapshot (design.md §8). Combina las reglas por defecto de gitleaks con
-// reglas propias de Home Assistant.
+// Package secrets is the secret scanner that runs before committing a
+// snapshot (design.md §8). It combines gitleaks' default rules with
+// Home Assistant-specific rules.
 //
-// Regla de oro: un Finding nunca lleva el valor del secreto. Ni en sus
-// campos, ni en Error(), ni en logs.
+// Golden rule: a Finding never carries the secret's value. Not in its
+// fields, not in Error(), not in logs.
 package secrets
 
 import (
@@ -25,24 +25,24 @@ import (
 	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/config"
 )
 
-// Severidades.
+// Severities.
 const (
 	Block = "block"
 	Warn  = "warn"
 )
 
-// Reglas propias.
+// Custom rules.
 const (
 	RuleHALiteral    = "ha-literal-secret"
 	RuleHAWebhookID  = "ha-webhook-id"
 	RuleURLWithCreds = "url-with-credentials"
 )
 
-// ErrSecretsFound indica que hay hallazgos bloqueantes. El error concreto es
+// ErrSecretsFound means there are blocking findings. The concrete error is
 // *BlockedError.
-var ErrSecretsFound = errors.New("posibles secretos en los cambios")
+var ErrSecretsFound = errors.New("possible secrets in the changes")
 
-// Finding es un hallazgo, sin el valor.
+// Finding is a finding, without the value.
 type Finding struct {
 	Path        string `json:"path"`
 	Line        int    `json:"line"`
@@ -55,7 +55,7 @@ func (f Finding) String() string {
 	return fmt.Sprintf("%s:%d: %s (%s) [%s]", f.Path, f.Line, f.Rule, f.Severity, f.Fingerprint)
 }
 
-// BlockedError lista los hallazgos bloqueantes.
+// BlockedError lists the blocking findings.
 type BlockedError struct {
 	Findings []Finding
 }
@@ -66,27 +66,27 @@ func (e *BlockedError) Error() string {
 	for _, f := range e.Findings {
 		b.WriteString("\n  " + f.String())
 	}
-	b.WriteString("\nMové el valor a secrets.yaml (y usá !secret), o agregá el fingerprint a secret_scan.allow si es un falso positivo.")
+	b.WriteString("\nMove the value to secrets.yaml (and use !secret), or add the fingerprint to secret_scan.allow if it is a false positive.")
 	return b.String()
 }
 
-// Is hace que errors.Is(err, ErrSecretsFound) funcione.
+// Is makes errors.Is(err, ErrSecretsFound) work.
 func (e *BlockedError) Is(target error) bool { return target == ErrSecretsFound }
 
-// Scanner es el escáner configurado.
+// Scanner is the configured scanner.
 type Scanner struct {
 	gl        *detect.Detector
 	webhookID string
 	allow     map[string]bool
 }
 
-// New crea un Scanner.
+// New creates a Scanner.
 func New(cfg config.SecretScan) (*Scanner, error) {
-	// gitleaks loguea a stderr, y en debug podría incluir contenido: se apaga.
+	// gitleaks logs to stderr, and in debug it could include content: turn it off.
 	logging.Logger = zerolog.Nop()
 	gl, err := detect.NewDetectorDefaultConfig()
 	if err != nil {
-		return nil, fmt.Errorf("cargando las reglas de gitleaks: %w", err)
+		return nil, fmt.Errorf("loading the gitleaks rules: %w", err)
 	}
 	s := &Scanner{gl: gl, webhookID: cfg.WebhookID, allow: map[string]bool{}}
 	if s.webhookID == "" {
@@ -98,8 +98,8 @@ func New(cfg config.SecretScan) (*Scanner, error) {
 	return s, nil
 }
 
-// Scan devuelve los hallazgos de un archivo (incluidos los permitidos por
-// fingerprint, marcados como tales por Filter).
+// Scan returns a file's findings (including those allowed by fingerprint,
+// which Check filters out).
 func (s *Scanner) Scan(repoPath string, content []byte) []Finding {
 	lines := bytes.Split(content, []byte{'\n'})
 	seen := map[string]bool{}
@@ -113,11 +113,11 @@ func (s *Scanner) Scan(repoPath string, content []byte) []Finding {
 		}
 	}
 
-	// DetectBytes en vez de Detect(Fragment): Fragment está deprecado hasta
-	// v9. Se pierden solo las allowlists por path de gitleaks (lockfiles y
-	// similares), que acá no aplican.
+	// DetectBytes instead of Detect(Fragment): Fragment is deprecated until
+	// v9. Only gitleaks' per-path allowlists (lockfiles and the like) are
+	// lost, and they do not apply here.
 	for _, gf := range s.gl.DetectBytes(content) {
-		// gitleaks numera las líneas desde 0 en fragmentos sueltos.
+		// gitleaks numbers lines from 0 in standalone fragments.
 		add(gf.StartLine+1, gf.RuleID, Block)
 	}
 	for i, l := range lines {
@@ -139,8 +139,8 @@ func (s *Scanner) Scan(repoPath string, content []byte) []Finding {
 	return out
 }
 
-// Check escanea un conjunto de archivos (path del repo → contenido). Devuelve
-// las advertencias y, si hay hallazgos bloqueantes no permitidos, un
+// Check scans a set of files (repo path → content). It returns the warnings
+// and, if there are blocking findings that are not allowed, a
 // *BlockedError.
 func (s *Scanner) Check(contents map[string][]byte) (warnings []Finding, err error) {
 	paths := make([]string, 0, len(contents))
@@ -167,11 +167,11 @@ func (s *Scanner) Check(contents map[string][]byte) (warnings []Finding, err err
 	return warnings, nil
 }
 
-// urlWithCreds detecta esquema://usuario:clave@host.
+// urlWithCreds detects scheme://user:password@host.
 var urlWithCreds = regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.\-]*://[^\s:/@"']+:[^\s/@"']+@[^\s/"']+`)
 
-// sensitiveKeys son las claves YAML cuyo valor literal es un secreto. Una
-// clave matchea si es igual a una de estas o termina en "_" + una de estas
+// sensitiveKeys are the YAML keys whose literal value is a secret. A key
+// matches if it equals one of these or ends in "_" + one of these
 // (api_password, refresh_token, client_secret…).
 var sensitiveKeys = []string{
 	"password", "passwd", "pass", "token", "api_key", "apikey", "secret",
@@ -188,8 +188,8 @@ func sensitive(key string) bool {
 	return false
 }
 
-// scanYAML aplica las reglas de HA. Si el YAML no parsea, no hace nada (el
-// pre-check de sintaxis es otro paso; gitleaks igual corrió).
+// scanYAML applies the HA rules. If the YAML does not parse, it does nothing
+// (the syntax pre-check is a separate step; gitleaks ran anyway).
 func (s *Scanner) scanYAML(content []byte, add func(line int, rule, severity string)) {
 	dec := yaml.NewDecoder(bytes.NewReader(content))
 	for {
@@ -211,7 +211,7 @@ func (s *Scanner) scanYAML(content []byte, add func(line int, rule, severity str
 	}
 }
 
-// walk recorre todos los pares clave/valor de los mappings.
+// walk visits every key/value pair of the mappings.
 func walk(n *yaml.Node, fn func(k, v *yaml.Node)) {
 	switch n.Kind {
 	case yaml.DocumentNode, yaml.SequenceNode:
@@ -226,8 +226,8 @@ func walk(n *yaml.Node, fn func(k, v *yaml.Node)) {
 	}
 }
 
-// literal dice si un valor es un escalar escrito a mano: no un !secret,
-// !env_var, !input ni otro tag de HA, no una plantilla, no vacío ni booleano.
+// literal reports whether a value is a hand-written scalar: not a !secret,
+// !env_var, !input or other HA tag, not a template, not empty or boolean.
 func literal(v *yaml.Node) bool {
 	if v.Kind != yaml.ScalarNode {
 		return false
@@ -251,8 +251,8 @@ func lineText(lines [][]byte, line int) string {
 	return strings.TrimSpace(string(lines[line-1]))
 }
 
-// fingerprint identifica un hallazgo para permitirlo: cambia si cambia el
-// path, la regla o el contenido de la línea.
+// fingerprint identifies a finding so it can be allowed: it changes if the
+// path, the rule or the line content changes.
 func fingerprint(repoPath, rule, line string) string {
 	h := sha256.Sum256([]byte(repoPath + "\x00" + rule + "\x00" + line))
 	return hex.EncodeToString(h[:])

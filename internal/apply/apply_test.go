@@ -28,7 +28,7 @@ type env struct {
 	journal string
 	checks  int
 	verdict ha.CheckResult
-	// results, si no está vacío, se devuelve en orden antes que verdict.
+	// results, if not empty, is returned in order before verdict.
 	results  []ha.CheckResult
 	checkErr error
 }
@@ -62,7 +62,7 @@ func (e *env) commit(parent string, changes map[string]string) string {
 	return testkit.Commit(e.t, e.repo, parent, changes)
 }
 
-// boxPath traduce un path del repo al disco del env.
+// boxPath maps a repo path to the env's disk.
 func (e *env) boxPath(p string) string {
 	if rel, ok := strings.CutPrefix(p, "config/"); ok {
 		return filepath.Join(e.ha, rel)
@@ -73,7 +73,7 @@ func (e *env) boxPath(p string) string {
 	return ""
 }
 
-// materialize deja en disco los archivos mapeados de un commit (disco == B).
+// materialize writes a commit's mapped files to disk (disk == B).
 func (e *env) materialize(commit string) {
 	e.t.Helper()
 	ref := "refs/heads/m"
@@ -137,26 +137,26 @@ func (e *env) journalExists() bool {
 func assertDisk(t *testing.T, got, want map[string]string) {
 	t.Helper()
 	if len(got) != len(want) {
-		t.Errorf("disco con %d archivos, quería %d:\n got: %v\nwant: %v", len(got), len(want), got, want)
+		t.Errorf("disk has %d files, want %d:\n got: %v\nwant: %v", len(got), len(want), got, want)
 	}
 	for p, c := range want {
 		if got[p] != c {
-			t.Errorf("%s = %q, quería %q", p, got[p], c)
+			t.Errorf("%s = %q, want %q", p, got[p], c)
 		}
 	}
 }
 
 var baseFiles = map[string]string{
-	"README.md":                         "# casa\n",
+	"README.md":                         "# home\n",
 	"config/configuration.yaml":         "homeassistant:\n",
 	"config/automations.yaml":           "[]\n",
 	"config/scenes.yaml":                "[]\n",
-	"config/packages/viejo.yaml":        "v: 1\n",
+	"config/packages/old.yaml":          "v: 1\n",
 	"config/.storage/lovelace":          "{\"v\": 1}\n",
 	"app_configs/core_mosquitto/m.conf": "listener 1883\n",
 }
 
-// baseDisk es lo que materialize deja en disco para baseFiles.
+// baseDisk is what materialize writes to disk for baseFiles.
 func baseDisk() map[string]string {
 	out := map[string]string{}
 	for p, c := range baseFiles {
@@ -171,14 +171,14 @@ func TestMakePlan(t *testing.T) {
 	e := newEnv(t)
 	b := e.commit("", baseFiles)
 	r := e.commit(b, map[string]string{
-		"README.md":                         "# casa v2\n",
+		"README.md":                         "# home v2\n",
 		"config/automations.yaml":           "- id: a\n",
 		"config/scenes.yaml":                testkit.Del,
-		"config/packages/nuevo.yaml":        "n: 1\n",
+		"config/packages/new.yaml":          "n: 1\n",
 		"config/.storage/lovelace":          "{\"v\": 2}\n",
 		"config/custom_components/x/a.yaml": "x:\n",
 		"config/secrets.yaml":               "pw: 1\n",
-		"config/notas.txt":                  "hola\n",
+		"config/notes.txt":                  "hello\n",
 	})
 	p := e.plan(b, r)
 
@@ -190,8 +190,8 @@ func TestMakePlan(t *testing.T) {
 		}
 		ops = append(ops, kind+" "+op.RepoPath)
 	}
-	if want := []string{"D config/scenes.yaml", "W config/automations.yaml", "W config/packages/nuevo.yaml"}; !slices.Equal(ops, want) {
-		t.Errorf("ops = %v, quería %v", ops, want)
+	if want := []string{"D config/scenes.yaml", "W config/automations.yaml", "W config/packages/new.yaml"}; !slices.Equal(ops, want) {
+		t.Errorf("ops = %v, want %v", ops, want)
 	}
 	ignored := map[string]string{}
 	for _, ig := range p.Ignored {
@@ -202,14 +202,14 @@ func TestMakePlan(t *testing.T) {
 		"config/.storage/lovelace":          ReasonPushOnly,
 		"config/custom_components/x/a.yaml": string(paths.ReasonExcluded),
 		"config/secrets.yaml":               string(paths.ReasonHardDenied),
-		"config/notas.txt":                  string(paths.ReasonNotIncluded),
+		"config/notes.txt":                  string(paths.ReasonNotIncluded),
 	}
 	if len(ignored) != len(want) {
-		t.Errorf("ignorados = %v", ignored)
+		t.Errorf("ignored = %v", ignored)
 	}
 	for k, v := range want {
 		if ignored[k] != v {
-			t.Errorf("%s: motivo %q, quería %q", k, ignored[k], v)
+			t.Errorf("%s: reason %q, want %q", k, ignored[k], v)
 		}
 	}
 }
@@ -219,29 +219,29 @@ func TestApplyWritesDeletesAndChecks(t *testing.T) {
 	b := e.commit("", baseFiles)
 	e.materialize(b)
 	r := e.commit(b, map[string]string{
-		"config/automations.yaml":        "- id: a\n",
-		"config/packages/viejo.yaml":     testkit.Del,
-		"config/packages/sub/nuevo.yaml": "n: 1\n",
-		"config/python_scripts/x.py":     "x:print(1)\n",
+		"config/automations.yaml":      "- id: a\n",
+		"config/packages/old.yaml":     testkit.Del,
+		"config/packages/sub/new.yaml": "n: 1\n",
+		"config/python_scripts/x.py":   "x:print(1)\n",
 	})
 	res, err := Apply(ctx, e.repo, e.plan(b, r), e.opts())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.Applied || !res.Checked || e.checks != 2 { // base + después de escribir
+	if !res.Applied || !res.Checked || e.checks != 2 { // baseline + after writing
 		t.Errorf("res = %+v, checks = %d", res, e.checks)
 	}
 	want := baseDisk()
 	want["config/automations.yaml"] = "- id: a\n"
-	delete(want, "config/packages/viejo.yaml")
-	want["config/packages/sub/nuevo.yaml"] = "n: 1\n"
+	delete(want, "config/packages/old.yaml")
+	want["config/packages/sub/new.yaml"] = "n: 1\n"
 	want["config/python_scripts/x.py"] = "print(1)\n"
 	assertDisk(t, e.disk(), want)
 
 	if fi, err := os.Stat(filepath.Join(e.ha, "python_scripts/x.py")); err != nil || fi.Mode().Perm()&0o111 == 0 {
-		t.Errorf("x.py debería ser ejecutable: %v %v", fi.Mode(), err)
+		t.Errorf("x.py should be executable: %v %v", fi.Mode(), err)
 	}
-	// El journal queda en fase checked hasta que el motor mueva box.
+	// The journal stays in phase checked until the engine moves box.
 	j, err := readJournal(e.journal)
 	if err != nil || j.Phase != PhaseChecked || j.To != r {
 		t.Errorf("journal = %+v, %v", j, err)
@@ -249,10 +249,10 @@ func TestApplyWritesDeletesAndChecks(t *testing.T) {
 	if err := Finish(e.journal); err != nil || e.journalExists() {
 		t.Errorf("Finish: %v", err)
 	}
-	// No quedan temporales.
+	// No temporary files are left.
 	for p := range testkit.Disk(t, e.ha) {
 		if strings.Contains(p, ".hcs-tmp-") {
-			t.Errorf("quedó un temporal: %s", p)
+			t.Errorf("temporary file left behind: %s", p)
 		}
 	}
 }
@@ -266,10 +266,10 @@ func TestDeletingLastFileRemovesEmptyDirs(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(e.ha, "packages")); !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("packages/ debería haberse borrado: %v", err)
+		t.Errorf("packages/ should have been deleted: %v", err)
 	}
 	if _, err := os.Stat(e.ha); err != nil {
-		t.Errorf("la raíz nunca se borra: %v", err)
+		t.Errorf("the root is never deleted: %v", err)
 	}
 }
 
@@ -283,7 +283,7 @@ func TestNoCheckWhenOnlyAddonConfigsChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	if res.Checked || e.checks != 0 {
-		t.Errorf("no debería correr check_config: %+v", res)
+		t.Errorf("check_config should not run: %+v", res)
 	}
 }
 
@@ -291,14 +291,14 @@ func TestPrecheckFailureTouchesNothing(t *testing.T) {
 	e := newEnv(t)
 	b := e.commit("", baseFiles)
 	e.materialize(b)
-	r := e.commit(b, map[string]string{"config/automations.yaml": "- id: [roto\n", "config/scenes.yaml": "ok: 1\n"})
+	r := e.commit(b, map[string]string{"config/automations.yaml": "- id: [broken\n", "config/scenes.yaml": "ok: 1\n"})
 	_, err := Apply(ctx, e.repo, e.plan(b, r), e.opts())
 	if !errors.Is(err, ErrPrecheck) || !strings.Contains(err.Error(), "config/automations.yaml") {
-		t.Fatalf("quería ErrPrecheck con el path, dio %v", err)
+		t.Fatalf("wanted ErrPrecheck with the path, got %v", err)
 	}
 	assertDisk(t, e.disk(), baseDisk())
 	if e.checks != 0 || e.journalExists() {
-		t.Error("no debería haber check ni journal")
+		t.Error("there should be no check and no journal")
 	}
 }
 
@@ -306,34 +306,34 @@ func TestRejectedConfigRollsBackExactly(t *testing.T) {
 	e := newEnv(t)
 	b := e.commit("", baseFiles)
 	e.materialize(b)
-	// Permisos raros que el rollback tiene que respetar.
+	// Unusual permissions the rollback must preserve.
 	if err := os.Chmod(filepath.Join(e.ha, "scenes.yaml"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	r := e.commit(b, map[string]string{
-		"config/automations.yaml":    "- id: invalida\n",
-		"config/scenes.yaml":         testkit.Del,
-		"config/packages/viejo.yaml": testkit.Del,
-		"config/nuevo/dir/x.yaml":    "x: 1\n",
+		"config/automations.yaml":  "- id: invalid\n",
+		"config/scenes.yaml":       testkit.Del,
+		"config/packages/old.yaml": testkit.Del,
+		"config/new/dir/x.yaml":    "x: 1\n",
 	})
 	e.verdict = ha.CheckResult{Valid: false, Errors: "Invalid config for [automation]"}
 
 	res, err := Apply(ctx, e.repo, e.plan(b, r), e.opts())
 	if !errors.Is(err, ErrRejected) || !strings.Contains(err.Error(), "Invalid config for [automation]") {
-		t.Fatalf("quería ErrRejected con los errores de HA, dio %v", err)
+		t.Fatalf("wanted ErrRejected with HA's errors, got %v", err)
 	}
 	if !res.RolledBack || res.Applied {
 		t.Errorf("res = %+v", res)
 	}
 	assertDisk(t, e.disk(), baseDisk())
 	if fi, err := os.Stat(filepath.Join(e.ha, "scenes.yaml")); err != nil || fi.Mode().Perm() != 0o600 {
-		t.Errorf("scenes.yaml restaurado con permisos %v (%v), quería 0600", fi.Mode().Perm(), err)
+		t.Errorf("scenes.yaml restored with permissions %v (%v), want 0600", fi.Mode().Perm(), err)
 	}
-	if _, err := os.Stat(filepath.Join(e.ha, "nuevo")); !errors.Is(err, fs.ErrNotExist) {
-		t.Error("los directorios creados por el apply tienen que desaparecer en el rollback")
+	if _, err := os.Stat(filepath.Join(e.ha, "new")); !errors.Is(err, fs.ErrNotExist) {
+		t.Error("directories created by the apply must disappear on rollback")
 	}
 	if e.journalExists() {
-		t.Error("después de un rollback limpio no queda journal")
+		t.Error("no journal should remain after a clean rollback")
 	}
 }
 
@@ -344,14 +344,14 @@ func TestWarningsPolicy(t *testing.T) {
 	tests := []struct {
 		name     string
 		policy   string
-		results  []ha.CheckResult // [antes, después] (o solo [después])
+		results  []ha.CheckResult // [before, after] (or only [after])
 		rejected bool
 	}{
-		{"new: aparece un warning", "new", []ha.CheckResult{{Valid: true}, {Valid: true, Warnings: []string{disabled}}}, true},
-		{"new: el warning ya estaba (con la línea corrida)", "new", []ha.CheckResult{{Valid: true, Warnings: []string{old}}, {Valid: true, Warnings: []string{oldMoved}}}, false},
-		{"new: base inválida, después válida", "new", []ha.CheckResult{{Valid: false, Errors: "x"}, {Valid: true}}, false},
-		{"any: cualquier warning", "any", []ha.CheckResult{{Valid: true, Warnings: []string{old}}}, true},
-		{"ignore: solo errores", "ignore", []ha.CheckResult{{Valid: true, Warnings: []string{disabled}}}, false},
+		{"new: a warning appears", "new", []ha.CheckResult{{Valid: true}, {Valid: true, Warnings: []string{disabled}}}, true},
+		{"new: the warning was already there (line shifted)", "new", []ha.CheckResult{{Valid: true, Warnings: []string{old}}, {Valid: true, Warnings: []string{oldMoved}}}, false},
+		{"new: invalid baseline, valid after", "new", []ha.CheckResult{{Valid: false, Errors: "x"}, {Valid: true}}, false},
+		{"any: any warning", "any", []ha.CheckResult{{Valid: true, Warnings: []string{old}}}, true},
+		{"ignore: errors only", "ignore", []ha.CheckResult{{Valid: true, Warnings: []string{disabled}}}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -365,16 +365,16 @@ func TestWarningsPolicy(t *testing.T) {
 			_, err := Apply(ctx, e.repo, e.plan(b, r), opts)
 			if tt.rejected {
 				if !errors.Is(err, ErrRejected) || !strings.Contains(err.Error(), "warnings") {
-					t.Fatalf("quería rechazo por warnings, dio %v", err)
+					t.Fatalf("wanted a rejection for warnings, got %v", err)
 				}
 				assertDisk(t, e.disk(), baseDisk())
 				return
 			}
 			if err != nil {
-				t.Fatalf("no quería rechazo: %v", err)
+				t.Fatalf("did not want a rejection: %v", err)
 			}
 			if e.checks != len(tt.results) {
-				t.Errorf("checks = %d, quería %d", e.checks, len(tt.results))
+				t.Errorf("checks = %d, want %d", e.checks, len(tt.results))
 			}
 		})
 	}
@@ -385,10 +385,10 @@ func TestCheckerErrorRollsBack(t *testing.T) {
 	b := e.commit("", baseFiles)
 	e.materialize(b)
 	r := e.commit(b, map[string]string{"config/automations.yaml": "- id: a\n"})
-	e.checkErr = errors.New("HA no responde")
+	e.checkErr = errors.New("HA is not responding")
 	_, err := Apply(ctx, e.repo, e.plan(b, r), e.opts())
 	if !errors.Is(err, ErrCheckUnavailable) {
-		t.Fatalf("quería ErrCheckUnavailable, dio %v", err)
+		t.Fatalf("wanted ErrCheckUnavailable, got %v", err)
 	}
 	assertDisk(t, e.disk(), baseDisk())
 }
@@ -399,17 +399,17 @@ func TestEditAfterSnapshotAbortsBeforeWriting(t *testing.T) {
 	e.materialize(b)
 	r := e.commit(b, map[string]string{"config/automations.yaml": "- id: main\n", "config/scenes.yaml": "- s\n"})
 
-	// Alguien edita desde la UI de HA entre el snapshot y el apply.
-	testkit.WriteFile(t, filepath.Join(e.ha, "scenes.yaml"), "- editado en la UI\n")
+	// Someone edits from the HA UI between the snapshot and the apply.
+	testkit.WriteFile(t, filepath.Join(e.ha, "scenes.yaml"), "- edited in the UI\n")
 	want := e.disk()
 
 	_, err := Apply(ctx, e.repo, e.plan(b, r), e.opts())
 	if !errors.Is(err, ErrDiskChanged) || !strings.Contains(err.Error(), "config/scenes.yaml") {
-		t.Fatalf("quería ErrDiskChanged nombrando el path, dio %v", err)
+		t.Fatalf("wanted ErrDiskChanged naming the path, got %v", err)
 	}
 	assertDisk(t, e.disk(), want)
 	if e.journalExists() {
-		t.Error("no debería haber journal")
+		t.Error("there should be no journal")
 	}
 }
 
@@ -418,12 +418,12 @@ func TestNewFileThatAlreadyExistsAborts(t *testing.T) {
 	b := e.commit("", baseFiles)
 	e.materialize(b)
 	r := e.commit(b, map[string]string{"config/scripts.yaml": "s: main\n"})
-	testkit.WriteFile(t, filepath.Join(e.ha, "scripts.yaml"), "s: creado en la UI\n")
+	testkit.WriteFile(t, filepath.Join(e.ha, "scripts.yaml"), "s: created in the UI\n")
 	if _, err := Apply(ctx, e.repo, e.plan(b, r), e.opts()); !errors.Is(err, ErrDiskChanged) {
-		t.Fatalf("quería ErrDiskChanged, dio %v", err)
+		t.Fatalf("wanted ErrDiskChanged, got %v", err)
 	}
-	if got := e.disk()["config/scripts.yaml"]; got != "s: creado en la UI\n" {
-		t.Errorf("se pisó una edición: %q", got)
+	if got := e.disk()["config/scripts.yaml"]; got != "s: created in the UI\n" {
+		t.Errorf("an edit was overwritten: %q", got)
 	}
 }
 
@@ -436,7 +436,7 @@ func TestExecBitChangeOnDiskAborts(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := Apply(ctx, e.repo, e.plan(b, r), e.opts()); !errors.Is(err, ErrDiskChanged) {
-		t.Fatalf("quería ErrDiskChanged, dio %v", err)
+		t.Fatalf("wanted ErrDiskChanged, got %v", err)
 	}
 }
 
@@ -451,10 +451,10 @@ func TestSymlinkedParentIsRejected(t *testing.T) {
 	r := e.commit(b, map[string]string{"config/packages2/x.yaml": "x: 1\n"})
 	_, err := Apply(ctx, e.repo, e.plan(b, r), e.opts())
 	if !errors.Is(err, ErrUnsafePath) {
-		t.Fatalf("quería ErrUnsafePath, dio %v", err)
+		t.Fatalf("wanted ErrUnsafePath, got %v", err)
 	}
 	if len(testkit.Disk(t, outside)) != 0 {
-		t.Error("se escribió fuera del mapeo a través del symlink")
+		t.Error("something was written outside the mapping through the symlink")
 	}
 }
 
@@ -462,16 +462,16 @@ func TestFileBecomesDirectoryAndBack(t *testing.T) {
 	e := newEnv(t)
 	b := e.commit("", baseFiles)
 	e.materialize(b)
-	r := e.commit(b, map[string]string{"config/automations.yaml": testkit.Del, "config/automations.yaml/cocina.yaml": "- id: c\n"})
+	r := e.commit(b, map[string]string{"config/automations.yaml": testkit.Del, "config/automations.yaml/kitchen.yaml": "- id: c\n"})
 	if _, err := Apply(ctx, e.repo, e.plan(b, r), e.opts()); err != nil {
 		t.Fatal(err)
 	}
-	if got := e.disk()["config/automations.yaml/cocina.yaml"]; got != "- id: c\n" {
-		t.Errorf("cocina = %q", got)
+	if got := e.disk()["config/automations.yaml/kitchen.yaml"]; got != "- id: c\n" {
+		t.Errorf("kitchen = %q", got)
 	}
 	_ = Finish(e.journal)
 
-	back := e.commit(r, map[string]string{"config/automations.yaml/cocina.yaml": testkit.Del, "config/automations.yaml": "[]\n"})
+	back := e.commit(r, map[string]string{"config/automations.yaml/kitchen.yaml": testkit.Del, "config/automations.yaml": "[]\n"})
 	if _, err := Apply(ctx, e.repo, e.plan(r, back), e.opts()); err != nil {
 		t.Fatal(err)
 	}
@@ -480,17 +480,17 @@ func TestFileBecomesDirectoryAndBack(t *testing.T) {
 
 func TestUnmanagedFileBlocksDirectoryToFileAndRollsBack(t *testing.T) {
 	e := newEnv(t)
-	// pk.yaml es un directorio en B y un archivo en R, pero en disco tiene
-	// además un archivo no gestionado que el apply no puede borrar.
+	// pk.yaml is a directory in B and a file in R, but on disk it also has
+	// an unmanaged file that the apply cannot delete.
 	b := e.commit("", map[string]string{"config/configuration.yaml": "a:\n", "config/pk.yaml/a.yaml": "a:\n"})
 	e.materialize(b)
-	testkit.WriteFile(t, filepath.Join(e.ha, "pk.yaml/notas.txt"), "no gestionado\n")
+	testkit.WriteFile(t, filepath.Join(e.ha, "pk.yaml/notes.txt"), "unmanaged\n")
 	r := e.commit(b, map[string]string{"config/pk.yaml/a.yaml": testkit.Del, "config/pk.yaml": "x: 1\n"})
 
 	before := e.disk()
 	_, err := Apply(ctx, e.repo, e.plan(b, r), e.opts())
-	if err == nil || !strings.Contains(err.Error(), "no gestionado") {
-		t.Fatalf("quería un error por el directorio con contenido no gestionado, dio %v", err)
+	if err == nil || !strings.Contains(err.Error(), "directory with unmanaged content") {
+		t.Fatalf("wanted an error for the directory with unmanaged content, got %v", err)
 	}
 	assertDisk(t, e.disk(), before)
 }
@@ -505,20 +505,20 @@ func TestPushOnlyIsNeverWritten(t *testing.T) {
 		t.Fatal(err)
 	}
 	if res.Applied || len(res.Plan.Ops) != 0 {
-		t.Errorf("no debería haber operaciones: %+v", res.Plan)
+		t.Errorf("there should be no operations: %+v", res.Plan)
 	}
 	assertDisk(t, e.disk(), baseDisk())
 }
 
-// TestCrashRecovery simula que el proceso muere después de cada operación
-// (y después del check) y verifica que Recover deja el disco en B o en R,
-// nunca mezclado.
+// TestCrashRecovery simulates the process dying after each operation
+// (and after the check) and verifies that Recover leaves the disk at B or
+// at R, never mixed.
 func TestCrashRecovery(t *testing.T) {
 	changes := map[string]string{
 		"config/automations.yaml":           "- id: a\n",
 		"config/scenes.yaml":                testkit.Del,
-		"config/packages/viejo.yaml":        testkit.Del,
-		"config/nuevo/x.yaml":               "x: 1\n",
+		"config/packages/old.yaml":          testkit.Del,
+		"config/new/x.yaml":                 "x: 1\n",
 		"app_configs/core_mosquitto/m.conf": "listener 8883\n",
 	}
 	nOps := len(changes)
@@ -532,24 +532,24 @@ func TestCrashRecovery(t *testing.T) {
 			opts.afterOp = func(i int) bool { return i == crashAt }
 
 			if _, err := Apply(ctx, e.repo, e.plan(b, r), opts); !errors.Is(err, errCrash) {
-				t.Fatalf("quería el crash simulado, dio %v", err)
+				t.Fatalf("wanted the simulated crash, got %v", err)
 			}
 			if !e.journalExists() {
-				t.Fatal("después de un crash tiene que quedar el journal")
+				t.Fatal("the journal must remain after a crash")
 			}
 
 			outcome, j, err := Recover(ctx, e.repo, e.m, e.journal)
 			if err != nil {
 				t.Fatal(err)
 			}
-			// Antes del check (crashAt < nOps) o justo después del check pero
-			// antes de marcar "checked": siempre se vuelve a B.
+			// Before the check (crashAt < nOps) or right after the check but
+			// before marking "checked": always back to B.
 			if outcome != RecoverRolledBack || j.From != b {
 				t.Errorf("outcome = %s", outcome)
 			}
 			assertDisk(t, e.disk(), baseDisk())
 			if e.journalExists() {
-				t.Error("Recover tiene que borrar el journal")
+				t.Error("Recover must delete the journal")
 			}
 		})
 	}
@@ -560,8 +560,8 @@ func TestRecoverAfterCheckedConfirmsTarget(t *testing.T) {
 	b := e.commit("", baseFiles)
 	e.materialize(b)
 	r := e.commit(b, map[string]string{"config/automations.yaml": "- id: a\n"})
-	// Apply completo: el journal queda en "checked" y el "proceso muere"
-	// antes de que el motor mueva box.
+	// Full apply: the journal stays at "checked" and the "process dies"
+	// before the engine moves box.
 	if _, err := Apply(ctx, e.repo, e.plan(b, r), e.opts()); err != nil {
 		t.Fatal(err)
 	}
@@ -570,7 +570,7 @@ func TestRecoverAfterCheckedConfirmsTarget(t *testing.T) {
 		t.Fatalf("outcome = %s, %v", outcome, err)
 	}
 	if !e.journalExists() {
-		t.Error("con at_target el journal queda hasta Finish")
+		t.Error("with at_target the journal stays until Finish")
 	}
 	if got := e.disk()["config/automations.yaml"]; got != "- id: a\n" {
 		t.Errorf("automations = %q", got)
@@ -587,18 +587,18 @@ func TestRecoverDoesNotClobberLaterEdits(t *testing.T) {
 	if _, err := Apply(ctx, e.repo, e.plan(b, r), opts); !errors.Is(err, errCrash) {
 		t.Fatal(err)
 	}
-	// Después del crash, alguien edita uno de los archivos.
-	testkit.WriteFile(t, filepath.Join(e.ha, "scenes.yaml"), "- editado después\n")
+	// After the crash, someone edits one of the files.
+	testkit.WriteFile(t, filepath.Join(e.ha, "scenes.yaml"), "- edited afterwards\n")
 
 	if _, _, err := Recover(ctx, e.repo, e.m, e.journal); err != nil {
 		t.Fatal(err)
 	}
 	d := e.disk()
 	if d["config/automations.yaml"] != "[]\n" {
-		t.Errorf("automations tenía que volver a B: %q", d["config/automations.yaml"])
+		t.Errorf("automations should have gone back to B: %q", d["config/automations.yaml"])
 	}
-	if d["config/scenes.yaml"] != "- editado después\n" {
-		t.Errorf("la edición posterior no se tiene que pisar: %q", d["config/scenes.yaml"])
+	if d["config/scenes.yaml"] != "- edited afterwards\n" {
+		t.Errorf("the later edit must not be overwritten: %q", d["config/scenes.yaml"])
 	}
 }
 

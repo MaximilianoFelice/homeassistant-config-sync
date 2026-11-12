@@ -1,6 +1,6 @@
-apagar_todo:
-  alias: Apagar todo
+turn_off_everything:
+  alias: Turn everything off
   sequence:
     - action: input_boolean.turn_off
       target:
-        entity_id: input_boolean.luz_entrada
+        entity_id: input_boolean.entrance_light

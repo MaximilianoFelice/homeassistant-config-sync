@@ -11,9 +11,9 @@ import (
 	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/engine"
 )
 
-// RunScheduler dispara un ciclo cada interval hasta que se cancele ctx. Si
-// hay un ciclo corriendo, el tick se saltea (design.md §11). Con interval 0
-// no hace nada: sync solo manual.
+// RunScheduler triggers a cycle every interval until ctx is cancelled. If a
+// cycle is already running, the tick is skipped (design.md §11). With
+// interval 0 it does nothing: manual sync only.
 func RunScheduler(ctx context.Context, s *Server, interval time.Duration, onSkip func()) {
 	if interval <= 0 {
 		return
@@ -32,10 +32,10 @@ func RunScheduler(ctx context.Context, s *Server, interval time.Duration, onSkip
 	}
 }
 
-// ReadCommands lee comandos de r, uno por línea, hasta EOF o hasta que se
-// cancele ctx. Es el canal de stdin de la app: la acción hassio.addon_stdin
-// con {"input": "sync"} dispara un ciclo. Devuelve los comandos que no
-// reconoce a onUnknown.
+// ReadCommands reads commands from r, one per line, until EOF or until ctx
+// is cancelled. It is the app's stdin channel: the hassio.addon_stdin action
+// with {"input": "sync"} triggers a cycle. Commands it does not recognize are
+// passed to onUnknown.
 func ReadCommands(ctx context.Context, r io.Reader, s *Server, onUnknown func(string), onBusy func()) {
 	lines := make(chan string)
 	go func() {
@@ -53,7 +53,7 @@ func ReadCommands(ctx context.Context, r io.Reader, s *Server, onUnknown func(st
 			if !ok {
 				return
 			}
-			// HA manda el input como JSON (un string entre comillas).
+			// HA sends the input as JSON (a quoted string).
 			cmd := strings.Trim(strings.TrimSpace(line), `"`)
 			switch cmd {
 			case "":

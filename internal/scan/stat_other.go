@@ -4,6 +4,6 @@ package scan
 
 import "io/fs"
 
-// sysStat no tiene ctime ni inode portables fuera de Linux. El motor corre
-// en Linux (la app y local); esto solo existe para que compile en otros lados.
+// sysStat has no portable ctime or inode outside Linux. The engine runs on
+// Linux (the app and locally); this only exists so it compiles elsewhere.
 func sysStat(fs.FileInfo) (ctimeNs int64, ino uint64) { return 0, 0 }

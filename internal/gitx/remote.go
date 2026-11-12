@@ -8,11 +8,11 @@ import (
 	"strings"
 )
 
-// ErrPushRejected indica que el remoto rechazó un push por no ser
-// fast-forward (alguien pusheó en el medio). Hay que volver a fetchear.
-var ErrPushRejected = errors.New("el remoto rechazó el push (no es fast-forward)")
+// ErrPushRejected means the remote rejected a push because it was not a
+// fast-forward (someone pushed in between). Fetch again.
+var ErrPushRejected = errors.New("the remote rejected the push (not a fast-forward)")
 
-// LsRemote devuelve las ramas del remoto: nombre corto → OID.
+// LsRemote returns the remote's branches: short name → OID.
 func (r *Repo) LsRemote(ctx context.Context, url string) (map[string]string, error) {
 	out, err := r.run(ctx, nil, "ls-remote", "--heads", "--end-of-options", url)
 	if err != nil {
@@ -25,7 +25,7 @@ func (r *Repo) LsRemote(ctx context.Context, url string) (map[string]string, err
 		}
 		oid, ref, ok := strings.Cut(line, "\t")
 		if !ok {
-			return nil, fmt.Errorf("ls-remote: línea inesperada %q", line)
+			return nil, fmt.Errorf("ls-remote: unexpected line %q", line)
 		}
 		if name, ok := strings.CutPrefix(ref, "refs/heads/"); ok {
 			heads[name] = oid
@@ -34,7 +34,7 @@ func (r *Repo) LsRemote(ctx context.Context, url string) (map[string]string, err
 	return heads, nil
 }
 
-// DeleteRef borra un ref si existe.
+// DeleteRef deletes a ref if it exists.
 func (r *Repo) DeleteRef(ctx context.Context, ref string) error {
 	cur, err := r.ResolveRef(ctx, ref)
 	if err != nil || cur == "" {
@@ -44,15 +44,15 @@ func (r *Repo) DeleteRef(ctx context.Context, ref string) error {
 	return err
 }
 
-// Push empuja refspecs ("<oid>:refs/heads/x") de forma atómica: o se
-// actualizan todos los refs o ninguno. Nunca usa --force.
+// Push pushes refspecs ("<oid>:refs/heads/x") atomically: either all refs
+// are updated or none. It never uses --force.
 func (r *Repo) Push(ctx context.Context, url string, refspecs ...string) error {
 	if len(refspecs) == 0 {
 		return nil
 	}
 	for _, rs := range refspecs {
 		if strings.HasPrefix(rs, "+") {
-			return fmt.Errorf("push forzado no permitido: %q", rs)
+			return fmt.Errorf("force push not allowed: %q", rs)
 		}
 	}
 	args := append([]string{"push", "--atomic", "--porcelain", "--no-verify", "--end-of-options", url}, refspecs...)

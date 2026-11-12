@@ -1,2 +1,2 @@
-input_boolean.luz_entrada:
-  friendly_name: Luz de la entrada
+input_boolean.entrance_light:
+  friendly_name: Entrance light

@@ -13,17 +13,17 @@ import (
 	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/paths"
 )
 
-// Fases del journal.
+// Journal phases.
 const (
-	// PhaseWriting: se está escribiendo o validando. Si el proceso muere acá,
-	// R no está validado y Recover vuelve a B.
+	// PhaseWriting: writing or validating. If the process dies here, R is
+	// not validated and Recover goes back to B.
 	PhaseWriting = "writing"
-	// PhaseChecked: el disco está en R y el check pasó; falta que el motor
-	// mueva box a R. Si el proceso muere acá, Recover confirma R.
+	// PhaseChecked: the disk is at R and the check passed; the engine still
+	// has to move box to R. If the process dies here, Recover confirms R.
 	PhaseChecked = "checked"
 )
 
-// Journal es el write-ahead log de un apply.
+// Journal is the write-ahead log of an apply.
 type Journal struct {
 	From  string `json:"from"`
 	To    string `json:"to"`
@@ -49,7 +49,7 @@ func readJournal(path string) (*Journal, error) {
 	}
 	var j Journal
 	if err := json.Unmarshal(b, &j); err != nil {
-		return nil, fmt.Errorf("journal %s ilegible: %w", path, err)
+		return nil, fmt.Errorf("journal %s is unreadable: %w", path, err)
 	}
 	return &j, nil
 }
@@ -61,26 +61,26 @@ func removeJournal(path string) error {
 	return nil
 }
 
-// Finish borra el journal después de que el motor movió box a R.
+// Finish deletes the journal after the engine moved box to R.
 func Finish(journalPath string) error { return removeJournal(journalPath) }
 
-// RecoverOutcome es lo que hizo Recover.
+// RecoverOutcome is what Recover did.
 type RecoverOutcome string
 
 const (
-	// RecoverNone: no había un apply interrumpido.
+	// RecoverNone: there was no interrupted apply.
 	RecoverNone RecoverOutcome = "none"
-	// RecoverAtTarget: el apply había terminado y validado; el disco está en
-	// R. El motor tiene que mover box a Journal.To y llamar a Finish.
+	// RecoverAtTarget: the apply had finished and been validated; the disk is
+	// at R. The engine must move box to Journal.To and call Finish.
 	RecoverAtTarget RecoverOutcome = "at_target"
-	// RecoverRolledBack: el apply quedó a medias o sin validar; el disco
-	// volvió a B (salvo paths editados por alguien más, que se dejan como
-	// están y entran en el próximo snapshot).
+	// RecoverRolledBack: the apply was left half-done or unvalidated; the disk
+	// went back to B (except paths edited by someone else, which are left as
+	// they are and go into the next snapshot).
 	RecoverRolledBack RecoverOutcome = "rolled_back"
 )
 
-// Recover revisa si quedó un apply interrumpido y deja el disco en un estado
-// consistente: todo en R (si ya estaba validado) o todo en B.
+// Recover checks for an interrupted apply and leaves the disk in a
+// consistent state: everything at R (if already validated) or everything at B.
 func Recover(ctx context.Context, repo *gitx.Repo, m *paths.Matcher, journalPath string) (RecoverOutcome, *Journal, error) {
 	j, err := readJournal(journalPath)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -104,9 +104,9 @@ func Recover(ctx context.Context, repo *gitx.Repo, m *paths.Matcher, journalPath
 		}
 	}
 
-	// Volver a B solo los paths que quedaron en R: los que siguen en B no
-	// necesitan nada, y los que no están ni en B ni en R los editó alguien y
-	// no se pisan.
+	// Revert to B only the paths left at R: those still at B need nothing,
+	// and those at neither B nor R were edited by someone and are not
+	// overwritten.
 	var toUndo []Op
 	for _, op := range j.Ops {
 		ok, err := atState(op.BoxPath, op.NewOID, op.NewMode)
@@ -118,7 +118,7 @@ func Recover(ctx context.Context, repo *gitx.Repo, m *paths.Matcher, journalPath
 		}
 	}
 	if err := rollback(ctx, repo, toUndo, m.Mappings()); err != nil {
-		return "", j, fmt.Errorf("recuperando el apply interrumpido: %w", err)
+		return "", j, fmt.Errorf("recovering the interrupted apply: %w", err)
 	}
 	if err := removeJournal(journalPath); err != nil {
 		return "", j, err

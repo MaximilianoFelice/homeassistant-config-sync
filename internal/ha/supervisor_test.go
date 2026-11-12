@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const token = "token-de-prueba-que-nunca-se-loguea"
+const token = "test-token-that-is-never-logged"
 
 type call struct {
 	Path string
@@ -22,11 +22,11 @@ type call struct {
 	Body map[string]any
 }
 
-// fakeCore imita el proxy del Supervisor hacia Core.
+// fakeCore mimics the Supervisor proxy to Core.
 type fakeCore struct {
 	mu      sync.Mutex
 	calls   []call
-	handler func(w http.ResponseWriter, r *http.Request) bool // true = ya respondió
+	handler func(w http.ResponseWriter, r *http.Request) bool // true = already responded
 }
 
 func (f *fakeCore) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -71,13 +71,13 @@ func TestCheckConfig(t *testing.T) {
 		want   CheckResult
 		errHas string
 	}{
-		{"válida", `{"result": "valid", "errors": null, "warnings": null}`, 200, CheckResult{Valid: true}, ""},
-		{"inválida", `{"result": "invalid", "errors": "Invalid config for 'automation' at automations.yaml, line 3", "warnings": null}`, 200,
+		{"valid", `{"result": "valid", "errors": null, "warnings": null}`, 200, CheckResult{Valid: true}, ""},
+		{"invalid", `{"result": "invalid", "errors": "Invalid config for 'automation' at automations.yaml, line 3", "warnings": null}`, 200,
 			CheckResult{Valid: false, Errors: "Invalid config for 'automation' at automations.yaml, line 3"}, ""},
-		{"inválida sin detalle", `{"result": "invalid", "errors": null}`, 200, CheckResult{Valid: false, Errors: "check_config devolvió invalid sin detalle"}, ""},
-		{"resultado raro", `{"result": "maybe"}`, 200, CheckResult{}, "desconocido"},
-		{"no autorizado", `401: Unauthorized`, 401, CheckResult{}, "401"},
-		{"basura", `<html>`, 200, CheckResult{}, "respuesta inesperada"},
+		{"invalid without details", `{"result": "invalid", "errors": null}`, 200, CheckResult{Valid: false, Errors: "check_config returned invalid without details"}, ""},
+		{"odd result", `{"result": "maybe"}`, 200, CheckResult{}, "unknown"},
+		{"unauthorized", `401: Unauthorized`, 401, CheckResult{}, "401"},
+		{"garbage", `<html>`, 200, CheckResult{}, "unexpected response"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -89,15 +89,15 @@ func TestCheckConfig(t *testing.T) {
 			got, err := newClient(t, f).CheckConfig(context.Background())
 			if tt.errHas != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.errHas) {
-					t.Fatalf("quería un error con %q, dio %v", tt.errHas, err)
+					t.Fatalf("want an error containing %q, got %v", tt.errHas, err)
 				}
 				if strings.Contains(err.Error(), token) {
-					t.Error("el error incluye el token")
+					t.Error("the error includes the token")
 				}
 				return
 			}
 			if err != nil || !reflect.DeepEqual(got, tt.want) {
-				t.Fatalf("= %+v, %v; quería %+v", got, err, tt.want)
+				t.Fatalf("= %+v, %v; want %+v", got, err, tt.want)
 			}
 			c := f.calls[0]
 			if c.Path != "POST /core/api/config/core/check_config" || c.Auth != "Bearer "+token {
@@ -119,10 +119,10 @@ func TestCheckConfigTimeout(t *testing.T) {
 	start := time.Now()
 	_, err := s.CheckConfig(context.Background())
 	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Errorf("quería timeout, dio %v", err)
+		t.Errorf("want a timeout, got %v", err)
 	}
 	if time.Since(start) > 5*time.Second {
-		t.Error("el timeout no se respetó")
+		t.Error("the timeout was not honored")
 	}
 }
 
@@ -132,7 +132,7 @@ func TestReloadAll(t *testing.T) {
 		t.Fatal(err)
 	}
 	if p := f.paths(); len(p) != 1 || p[0] != "POST /core/api/services/homeassistant/reload_all" {
-		t.Errorf("llamadas = %v", p)
+		t.Errorf("calls = %v", p)
 	}
 }
 
@@ -140,8 +140,8 @@ func TestNotifyProblemCreatesPersistentNotification(t *testing.T) {
 	f := &fakeCore{}
 	s := newClient(t, f)
 	s.NotifyService = "notify.mobile_app_pixel"
-	ev := Event{Type: EventConflict, Title: "Config Sync: conflicto", Message: "Conflicto en automations.yaml",
-		Data: map[string]any{"paths": []string{"config/automations.yaml"}, "type": "no-pisa"}, Persistent: true}
+	ev := Event{Type: EventConflict, Title: "Git Config Sync: conflict", Message: "Conflict in automations.yaml",
+		Data: map[string]any{"paths": []string{"config/automations.yaml"}, "type": "must-not-override"}, Persistent: true}
 	if err := s.Notify(context.Background(), ev); err != nil {
 		t.Fatal(err)
 	}
@@ -151,14 +151,14 @@ func TestNotifyProblemCreatesPersistentNotification(t *testing.T) {
 		"POST /core/api/services/notify/mobile_app_pixel",
 	}
 	if got := f.paths(); strings.Join(got, "|") != strings.Join(want, "|") {
-		t.Fatalf("llamadas = %v", got)
+		t.Fatalf("calls = %v", got)
 	}
 	evBody := f.calls[0].Body
 	if evBody["type"] != EventConflict || evBody["paths"] == nil {
-		t.Errorf("evento = %v (Data no puede pisar type)", evBody)
+		t.Errorf("event = %v (Data must not override type)", evBody)
 	}
 	if f.calls[1].Body["notification_id"] != NotificationID {
-		t.Errorf("notificación = %v", f.calls[1].Body)
+		t.Errorf("notification = %v", f.calls[1].Body)
 	}
 }
 
@@ -171,7 +171,7 @@ func TestNotifySuccessDismissesNotification(t *testing.T) {
 	}
 	want := []string{"POST /core/api/events/homeassistant_config_sync", "POST /core/api/services/persistent_notification/dismiss"}
 	if got := f.paths(); strings.Join(got, "|") != strings.Join(want, "|") {
-		t.Errorf("llamadas = %v (no se avisa al celular por un sync normal)", got)
+		t.Errorf("calls = %v (a normal sync does not notify the phone)", got)
 	}
 }
 
@@ -185,17 +185,17 @@ func TestNotifyKeepsGoingAfterAFailure(t *testing.T) {
 	}}
 	err := newClient(t, f).Notify(context.Background(), Event{Type: EventRejected, Persistent: true})
 	if err == nil || !strings.Contains(err.Error(), "500") {
-		t.Errorf("quería el error del evento, dio %v", err)
+		t.Errorf("want the event error, got %v", err)
 	}
 	if len(f.paths()) != 2 {
-		t.Errorf("la notificación persistente igual tiene que salir: %v", f.paths())
+		t.Errorf("the persistent notification must still go out: %v", f.paths())
 	}
 }
 
 func TestNewSupervisorFromEnv(t *testing.T) {
 	t.Setenv("SUPERVISOR_TOKEN", "")
 	if _, err := NewSupervisorFromEnv(""); !errors.Is(err, ErrNoToken) {
-		t.Errorf("sin token: %v", err)
+		t.Errorf("without token: %v", err)
 	}
 	t.Setenv("SUPERVISOR_TOKEN", "x")
 	s, err := NewSupervisorFromEnv("notify.x")
@@ -206,28 +206,28 @@ func TestNewSupervisorFromEnv(t *testing.T) {
 
 func TestCheckConfigWarnings(t *testing.T) {
 	f := &fakeCore{handler: func(w http.ResponseWriter, _ *http.Request) bool {
-		_, _ = w.Write([]byte(`{"result": "valid", "errors": null, "warnings": "Invalid config for 'input_boolean' at configuration.yaml, line 3: x\nOtro aviso\n"}`))
+		_, _ = w.Write([]byte(`{"result": "valid", "errors": null, "warnings": "Invalid config for 'input_boolean' at configuration.yaml, line 3: x\nAnother warning\n"}`))
 		return true
 	}}
 	got, err := newClient(t, f).CheckConfig(context.Background())
-	if err != nil || !got.Valid || len(got.Warnings) != 2 || got.Warnings[1] != "Otro aviso" {
+	if err != nil || !got.Valid || len(got.Warnings) != 2 || got.Warnings[1] != "Another warning" {
 		t.Errorf("= %+v, %v", got, err)
 	}
 }
 
 func TestNewWarningsIgnoresLineNumbers(t *testing.T) {
 	before := []string{"Invalid config for 'timer' at configuration.yaml, line 40: bad"}
-	after := []string{"Invalid config for 'timer' at configuration.yaml, line 52: bad", "Invalid config for 'http' at x.yaml, line 1: nuevo"}
+	after := []string{"Invalid config for 'timer' at configuration.yaml, line 52: bad", "Invalid config for 'http' at x.yaml, line 1: new"}
 	if got := NewWarnings(before, after); len(got) != 1 || !strings.Contains(got[0], "http") {
 		t.Errorf("= %v", got)
 	}
 }
 
-// Salida real de `check_config --json` (HA 2026.11.1) con una integración
-// inválida (warning) y una config core inválida (error).
+// Real output of `check_config --json` (HA 2026.11.1) with an invalid
+// integration (warning) and an invalid core config (error).
 const checkJSON = `Testing configuration at /config
 {"check_type": "full", "total_errors": 1, "total_warnings": 1,
- "errors": {"http": ["Invalid config for 'http' at configuration.yaml, line 120: expected a port number", {"server_port": "no_es_numero"}]},
+ "errors": {"http": ["Invalid config for 'http' at configuration.yaml, line 120: expected a port number", {"server_port": "not_a_number"}]},
  "warnings": {"input_boolean": ["Invalid config for 'input_boolean' at configuration.yaml, line 117: invalid boolean value", {"e2e_x": {"initial": "no"}}]}}`
 
 func TestCommandCheckerReadsHAJSON(t *testing.T) {
@@ -236,10 +236,10 @@ func TestCommandCheckerReadsHAJSON(t *testing.T) {
 	if err != nil || got.Valid || !strings.Contains(got.Errors, "'http'") || len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], "input_boolean") {
 		t.Errorf("= %+v, %v", got, err)
 	}
-	ok := `{"total_errors": 0, "total_warnings": 1, "errors": {}, "warnings": {"x": ["aviso"]}}`
+	ok := `{"total_errors": 0, "total_warnings": 1, "errors": {}, "warnings": {"x": ["warning"]}}`
 	got, err = CommandChecker{Command: "echo '" + ok + "'"}.CheckConfig(context.Background())
 	if err != nil || !got.Valid || len(got.Warnings) != 1 {
-		t.Errorf("válida con warning = %+v, %v", got, err)
+		t.Errorf("valid with warning = %+v, %v", got, err)
 	}
 }
 

@@ -12,7 +12,7 @@ import (
 	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/secrets"
 )
 
-// Estados del motor (design.md §12).
+// Engine states (design.md §12).
 const (
 	StateIdle               = "idle"
 	StateConflict           = "conflict"
@@ -23,15 +23,15 @@ const (
 	StateError              = "error"
 )
 
-// Rejected recuerda un merge que no pasó el check: no se reintenta hasta
-// que cambie main o box.
+// Rejected remembers a merge that failed the check: it is not retried until
+// main or box changes.
 type Rejected struct {
 	Main   string `json:"main"`
 	Box    string `json:"box"`
 	Errors string `json:"errors"`
 }
 
-// State es lo que el motor persiste entre ciclos en state.json.
+// State is what the engine persists between cycles in state.json.
 type State struct {
 	State     string    `json:"state"`
 	LastSync  time.Time `json:"last_sync"`
@@ -46,8 +46,8 @@ type State struct {
 	Warnings           []secrets.Finding `json:"warnings,omitempty"`
 	BootstrapPending   bool              `json:"bootstrap_pending,omitempty"`
 	RestartRecommended bool              `json:"restart_recommended,omitempty"`
-	// LastNotified identifica el último aviso que pedía intervención, para
-	// no repetirlo en cada ciclo. Se limpia cuando el sync vuelve a idle.
+	// LastNotified identifies the last notification that needed intervention,
+	// so it is not repeated every cycle. Cleared when the sync returns to idle.
 	LastNotified string `json:"last_notified,omitempty"`
 
 	Cache scan.Cache `json:"cache,omitempty"`
@@ -92,7 +92,7 @@ func saveState(path string, s *State) error {
 	return os.Rename(tmp.Name(), path)
 }
 
-// LoadState lee el estado persistido de un state dir (para `hcs status`).
+// LoadState reads the persisted state of a state dir (for `hcs status`).
 func LoadState(stateDir string) (*State, error) {
 	return loadState(filepath.Join(stateDir, "state.json"))
 }

@@ -1,7 +1,7 @@
-// Package yamlcheck valida la sintaxis de lo que se va a escribir en el box
-// antes de tocar el disco (design.md §7, paso 1). Es un chequeo barato que
-// no necesita a Home Assistant: no valida el esquema, solo que el archivo se
-// pueda parsear.
+// Package yamlcheck validates the syntax of what is about to be written to
+// the box before touching the disk (design.md §7, step 1). It is a cheap
+// check that does not need Home Assistant: it does not validate the schema,
+// only that the file parses.
 package yamlcheck
 
 import (
@@ -16,8 +16,8 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// Check valida el contenido según la extensión de repoPath. Los archivos que
-// no son YAML ni JSON pasan sin mirar.
+// Check validates the content according to repoPath's extension. Files that
+// are neither YAML nor JSON pass without being inspected.
 func Check(repoPath string, content []byte) error {
 	switch strings.ToLower(path.Ext(repoPath)) {
 	case ".yaml", ".yml":
@@ -28,9 +28,9 @@ func Check(repoPath string, content []byte) error {
 	return nil
 }
 
-// checkYAML parsea todos los documentos a yaml.Node, que acepta cualquier
-// tag: los de HA (!secret, !include, !include_dir_*, !input, !env_var) no
-// son errores.
+// checkYAML parses every document into a yaml.Node, which accepts any tag:
+// HA's tags (!secret, !include, !include_dir_*, !input, !env_var) are not
+// errors.
 func checkYAML(content []byte) error {
 	dec := yaml.NewDecoder(bytes.NewReader(content))
 	for {
@@ -51,7 +51,7 @@ func checkJSON(content []byte) error {
 		var se *json.SyntaxError
 		if errors.As(err, &se) {
 			line := 1 + bytes.Count(content[:min(int(se.Offset), len(content))], []byte{'\n'})
-			return fmt.Errorf("json: línea %d: %w", line, se)
+			return fmt.Errorf("json: line %d: %w", line, se)
 		}
 		return err
 	}

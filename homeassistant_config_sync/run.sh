@@ -1,16 +1,16 @@
 #!/bin/sh
-# Arranque de la app: inicializa /data (repo bare, deploy key, token de la
-# API), muestra la deploy key y levanta la API, el scheduler y stdin.
+# App startup: initializes /data (bare repo, deploy key, API token), shows
+# the deploy key and starts the API, the scheduler and stdin.
 set -eu
 
 options=/data/options.json
 
 if ! hcs init --config "$options" --state-dir /data; then
-  echo "La configuración no es válida. Revisá la pestaña Configuración de la app (por ejemplo, 'repository' tiene que ser git@host:owner/repo.git)."
+  echo "The configuration is not valid. Check the app's Configuration tab (for example, 'repository' must be git@host:owner/repo.git)."
   exit 1
 fi
 
-echo "Deploy key de esta app (cargala en GitHub → Settings → Deploy keys, con Allow write access):"
+echo "Deploy key for this app (add it in GitHub → Settings → Deploy keys, with Allow write access):"
 hcs deploy-key --state-dir /data
 
 exec hcs serve --config "$options" --state-dir /data --listen 0.0.0.0:8099 --stdin --sync-on-start

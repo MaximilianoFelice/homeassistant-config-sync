@@ -13,16 +13,16 @@ import (
 	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/ha"
 )
 
-// Códigos de salida de sync/plan.
+// Exit codes of sync/plan.
 const (
 	exitOK        = 0
-	exitAttention = 1 // conflicto, rechazo, secretos, bootstrap, snapshot frenado
+	exitAttention = 1 // conflict, rejection, secrets, bootstrap, stopped snapshot
 	exitError     = 2
 )
 
 func newEngine(g globalFlags, stderr io.Writer) (*engine.Engine, *config.Config, bool) {
 	if g.config == "" {
-		_, _ = fmt.Fprintln(stderr, "hcs: falta --config")
+		_, _ = fmt.Fprintln(stderr, "hcs: missing --config")
 		return nil, nil, false
 	}
 	cfg, err := config.Load(g.config)
@@ -46,16 +46,16 @@ func newEngine(g globalFlags, stderr io.Writer) (*engine.Engine, *config.Config,
 	return e, cfg, true
 }
 
-// haClients agrupa lo que el motor necesita de Home Assistant.
+// haClients groups what the engine needs from Home Assistant.
 type haClients struct {
 	checker  ha.Checker
 	reloader ha.Reloader
 	notifier ha.Notifier
 }
 
-// makeHA elige los clientes de HA. Dentro de la app (hay SUPERVISOR_TOKEN)
-// todo va por el Supervisor; en local, el checker sale de --checker y reload y
-// notificaciones no hacen nada.
+// makeHA picks the HA clients. Inside the app (SUPERVISOR_TOKEN is set)
+// everything goes through the Supervisor; locally, the checker comes from
+// --checker and reload and notifications are no-ops.
 func makeHA(spec, notifyService string) (haClients, error) {
 	inApp := os.Getenv("SUPERVISOR_TOKEN") != ""
 	if spec == "supervisor" || (spec == "" && inApp) {
@@ -72,7 +72,7 @@ func makeHA(spec, notifyService string) (haClients, error) {
 	case strings.HasPrefix(spec, "command:"):
 		return haClients{checker: ha.CommandChecker{Command: strings.TrimPrefix(spec, "command:")}, reloader: noop, notifier: noop}, nil
 	}
-	return haClients{}, fmt.Errorf("--checker %q no válido: supervisor | noop | command:'<cmd>'", spec)
+	return haClients{}, fmt.Errorf("invalid --checker %q: supervisor | noop | command:'<cmd>'", spec)
 }
 
 func cmdInit(g globalFlags, stdout, stderr io.Writer) int {
@@ -86,9 +86,9 @@ func cmdInit(g globalFlags, stdout, stderr io.Writer) int {
 		return exitError
 	}
 	if res.Created {
-		_, _ = fmt.Fprintln(stdout, "Se generó una deploy key nueva. Cargala en GitHub (Settings → Deploy keys → Allow write access):")
+		_, _ = fmt.Fprintln(stdout, "Generated a new deploy key. Add it on GitHub (Settings → Deploy keys → Allow write access):")
 	} else {
-		_, _ = fmt.Fprintln(stdout, "El state dir ya estaba inicializado. Deploy key:")
+		_, _ = fmt.Fprintln(stdout, "The state dir was already initialized. Deploy key:")
 	}
 	_, _ = fmt.Fprintln(stdout, res.DeployKey)
 	return exitOK
@@ -97,7 +97,7 @@ func cmdInit(g globalFlags, stdout, stderr io.Writer) int {
 func cmdDeployKey(g globalFlags, stdout, stderr io.Writer) int {
 	pub, err := engine.DeployKey(g.stateDir)
 	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "hcs: no hay deploy key (¿corriste hcs init?):", err)
+		_, _ = fmt.Fprintln(stderr, "hcs: no deploy key (did you run hcs init?):", err)
 		return exitError
 	}
 	_, _ = fmt.Fprintln(stdout, pub)
@@ -114,19 +114,19 @@ func cmdStatus(g globalFlags, stdout, stderr io.Writer) int {
 		st.Cache = nil
 		return printJSON(stdout, stderr, st)
 	}
-	_, _ = fmt.Fprintf(stdout, "estado:       %s\n", st.State)
+	_, _ = fmt.Fprintf(stdout, "state:        %s\n", st.State)
 	if !st.LastSync.IsZero() {
-		_, _ = fmt.Fprintf(stdout, "último sync:  %s\n", st.LastSync.Format("2006-01-02 15:04:05"))
+		_, _ = fmt.Fprintf(stdout, "last sync:    %s\n", st.LastSync.Format("2006-01-02 15:04:05"))
 	}
 	_, _ = fmt.Fprintf(stdout, "box:          %s\nmain:         %s\n", short(st.BoxHead), short(st.MainHead))
 	if st.RestartRecommended {
-		_, _ = fmt.Fprintln(stdout, "restart:      recomendado")
+		_, _ = fmt.Fprintln(stdout, "restart:      recommended")
 	}
 	for _, p := range st.ConflictPaths {
-		_, _ = fmt.Fprintf(stdout, "conflicto:    %s\n", p)
+		_, _ = fmt.Fprintf(stdout, "conflict:     %s\n", p)
 	}
 	for _, f := range st.Findings {
-		_, _ = fmt.Fprintf(stdout, "secreto:      %s\n", f)
+		_, _ = fmt.Fprintf(stdout, "secret:       %s\n", f)
 	}
 	if st.LastError != "" {
 		_, _ = fmt.Fprintf(stdout, "error:        %s\n", st.LastError)
@@ -167,36 +167,36 @@ func cmdSync(g globalFlags, dryRun bool, stdout, stderr io.Writer) int {
 func printReport(w io.Writer, rep *engine.Report) {
 	p := func(format string, a ...any) { _, _ = fmt.Fprintf(w, format+"\n", a...) }
 	if rep.DryRun {
-		p("(dry-run: no se escribió nada)")
+		p("(dry-run: nothing was written)")
 	}
-	p("estado: %s (intentos: %d)", rep.State, rep.Attempts)
+	p("state: %s (attempts: %d)", rep.State, rep.Attempts)
 	if rep.Recovered != "" && rep.Recovered != "none" {
-		p("recuperación de un apply interrumpido: %s", rep.Recovered)
+		p("recovered an interrupted apply: %s", rep.Recovered)
 	}
 	if len(rep.Changes) > 0 {
-		p("cambios del box (%s):", orDash(short(rep.SnapshotCommit)))
+		p("box changes (%s):", orDash(short(rep.SnapshotCommit)))
 		for _, c := range rep.Changes {
 			p("  %s %s", c.Kind, c.Path)
 		}
 	}
 	for _, s := range rep.Skipped {
-		p("  salteado: %s (%s)", s.RepoPath, s.Reason)
+		p("  skipped: %s (%s)", s.RepoPath, s.Reason)
 	}
 	if rep.MergeKind != "" {
 		note := ""
 		if rep.DryRun && len(rep.Changes) > 0 {
-			note = " (calculado sin los cambios del box de arriba, que todavía no se commitearon)"
+			note = " (computed without the uncommitted box changes above)"
 		}
 		p("merge: %s → %s%s", rep.MergeKind, orDash(short(rep.R)), note)
 	}
 	for _, c := range rep.ConflictPaths {
-		p("  conflicto: %s", c)
+		p("  conflict: %s", c)
 	}
 	for _, o := range rep.Overridden {
-		p("  push_only conservado del box: %s", o)
+		p("  push_only kept from the box: %s", o)
 	}
 	if rep.Plan != nil && len(rep.Plan.Ops) > 0 {
-		p("cambios hacia el box:")
+		p("changes to the box:")
 		for _, op := range rep.Plan.Ops {
 			kind := "W"
 			if op.IsDelete() {
@@ -207,26 +207,26 @@ func printReport(w io.Writer, rep *engine.Report) {
 	}
 	if rep.Plan != nil {
 		for _, ig := range rep.Plan.Ignored {
-			p("  no se aplica: %s (%s)", ig.RepoPath, ig.Reason)
+			p("  not applied: %s (%s)", ig.RepoPath, ig.Reason)
 		}
 	}
 	if rep.Applied {
-		p("aplicado (check: %v, reload: %v)", rep.Checked, rep.Reloaded)
+		p("applied (check: %v, reload: %v)", rep.Checked, rep.Reloaded)
 	}
 	if rep.Restart {
-		p("conviene reiniciar Home Assistant")
+		p("a Home Assistant restart is recommended")
 	}
 	for _, s := range rep.Pushed {
 		p("push: %s", s)
 	}
 	for _, f := range rep.Findings {
-		p("  secreto: %s", f)
+		p("  secret: %s", f)
 	}
 	for _, f := range rep.Warnings {
-		p("  advertencia: %s", f)
+		p("  warning: %s", f)
 	}
 	if rep.Error != "" {
-		p("detalle: %s", rep.Error)
+		p("detail: %s", rep.Error)
 	}
 }
 

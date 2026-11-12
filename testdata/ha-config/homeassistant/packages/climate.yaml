@@ -1,6 +1,6 @@
 input_number:
-  temperatura_objetivo:
-    name: Temperatura objetivo
+  target_temperature:
+    name: Target temperature
     min: 16
     max: 28
     step: 0.5

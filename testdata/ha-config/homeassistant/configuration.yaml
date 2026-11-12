@@ -1,7 +1,7 @@
-# Config de ejemplo para los tests E2E. Es sintética: no corresponde a
-# ninguna instalación real.
+# Sample config for the E2E tests. It is synthetic: it does not match any
+# real installation.
 homeassistant:
-  name: Casa de ejemplo
+  name: Example Home
   latitude: !secret home_latitude
   longitude: !secret home_longitude
   elevation: 10
@@ -21,6 +21,6 @@ scene: !include scenes.yaml
 
 template:
   - sensor:
-      - name: Temperatura promedio
+      - name: Average temperature
         unit_of_measurement: "°C"
         state: "{{ 21 }}"

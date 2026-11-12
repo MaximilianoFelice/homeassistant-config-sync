@@ -15,10 +15,10 @@ func validConfig() *Config {
 
 func TestDefaultIsValidOnceRepositoryIsSet(t *testing.T) {
 	if err := validConfig().Validate(ValidateOptions{}); err != nil {
-		t.Fatalf("la config por defecto debería ser válida: %v", err)
+		t.Fatalf("the default config should be valid: %v", err)
 	}
 	if err := Default().Validate(ValidateOptions{}); err == nil || !strings.Contains(err.Error(), "repository") {
-		t.Fatalf("sin repository debería fallar por repository, dio %v", err)
+		t.Fatalf("without repository it should fail on repository, got %v", err)
 	}
 }
 
@@ -33,20 +33,20 @@ secret_scan:
 		t.Fatal(err)
 	}
 	if c.SyncIntervalMinutes != 0 {
-		t.Errorf("sync_interval_minutes = %d, quería 0", c.SyncIntervalMinutes)
+		t.Errorf("sync_interval_minutes = %d, want 0", c.SyncIntervalMinutes)
 	}
 	if c.MainBranch != "main" || c.Mode != ModeBidirectional || len(c.Mappings) != 2 {
-		t.Errorf("se perdieron defaults: %+v", c)
+		t.Errorf("defaults were lost: %+v", c)
 	}
 	if c.SecretScan.WebhookID != SeverityWarn {
-		t.Errorf("un objeto parcial pisó el default de webhook_id: %q", c.SecretScan.WebhookID)
+		t.Errorf("a partial object overwrote the webhook_id default: %q", c.SecretScan.WebhookID)
 	}
 
 	if _, err := Parse([]byte("repositry: x\n")); err == nil {
-		t.Error("una clave desconocida debería ser un error")
+		t.Error("an unknown key should be an error")
 	}
 	if c, err := Parse(nil); err != nil || c.MainBranch != "main" {
-		t.Errorf("un archivo vacío debería dar los defaults: %v %+v", err, c)
+		t.Errorf("an empty file should give the defaults: %v %+v", err, c)
 	}
 }
 
@@ -57,10 +57,10 @@ func TestParseReadsSupervisorJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	if c.Mode != ModePushOnly || len(c.Mappings) != 1 || c.Mappings[0].Include[0] != "*.yaml" {
-		t.Errorf("JSON mal leído: %+v", c)
+		t.Errorf("JSON read incorrectly: %+v", c)
 	}
 	if err := c.Validate(ValidateOptions{}); err != nil {
-		t.Errorf("debería ser válida: %v", err)
+		t.Errorf("should be valid: %v", err)
 	}
 }
 
@@ -81,10 +81,10 @@ mappings:
 		t.Fatal(err)
 	}
 	if want := filepath.Join(dir, "box", "homeassistant"); c.Mappings[0].Box != want {
-		t.Errorf("box = %q, quería %q", c.Mappings[0].Box, want)
+		t.Errorf("box = %q, want %q", c.Mappings[0].Box, want)
 	}
 	if err := c.Validate(ValidateOptions{AllowFileRemote: true}); err != nil {
-		t.Errorf("debería ser válida con AllowFileRemote: %v", err)
+		t.Errorf("should be valid with AllowFileRemote: %v", err)
 	}
 }
 
@@ -94,16 +94,16 @@ func TestValidateReportsEveryError(t *testing.T) {
 	c.Mode = "both"
 	c.MaxFileSizeKB = 0
 	c.DeleteGuardPercent = 0
-	c.CommitAuthor = "sin email"
+	c.CommitAuthor = "no email"
 	c.SecretScan.Allow = []string{"nope"}
 	c.NotifyService = "notify/../../evil"
 	err := c.Validate(ValidateOptions{})
 	if err == nil {
-		t.Fatal("quería errores")
+		t.Fatal("want errors")
 	}
 	for _, field := range []string{"box_branch", "mode", "max_file_size_kb", "delete_guard_percent", "commit_author", "secret_scan.allow[0]", "notify_service"} {
 		if !strings.Contains(err.Error(), field+":") {
-			t.Errorf("falta el error de %s en:\n%v", field, err)
+			t.Errorf("missing the %s error in:\n%v", field, err)
 		}
 	}
 }
@@ -112,22 +112,22 @@ func TestValidateMappings(t *testing.T) {
 	tests := []struct {
 		name    string
 		mutate  func(*Config)
-		wantErr string // vacío = válida
+		wantErr string // empty = valid
 	}{
 		{"defaults", func(*Config) {}, ""},
-		{"sin mapeos", func(c *Config) { c.Mappings = nil }, "al menos un mapeo"},
-		{"repo absoluto", func(c *Config) { c.Mappings[0].Repo = "/config" }, "mappings[0].repo"},
-		{"repo con ..", func(c *Config) { c.Mappings[0].Repo = "../config" }, "mappings[0].repo"},
-		{"repo sucio", func(c *Config) { c.Mappings[0].Repo = "config/" }, "mappings[0].repo"},
+		{"no mappings", func(c *Config) { c.Mappings = nil }, "at least one mapping"},
+		{"absolute repo", func(c *Config) { c.Mappings[0].Repo = "/config" }, "mappings[0].repo"},
+		{"repo with ..", func(c *Config) { c.Mappings[0].Repo = "../config" }, "mappings[0].repo"},
+		{"unclean repo", func(c *Config) { c.Mappings[0].Repo = "config/" }, "mappings[0].repo"},
 		{"repo .git", func(c *Config) { c.Mappings[0].Repo = ".git/x" }, "mappings[0].repo"},
-		{"repo anidado", func(c *Config) { c.Mappings[1].Repo = "config/apps" }, "se solapa"},
-		{"box relativo", func(c *Config) { c.Mappings[0].Box = "homeassistant" }, "mappings[0].box"},
-		{"box raíz", func(c *Config) { c.Mappings[0].Box = "/" }, "mappings[0].box"},
-		{"box anidado", func(c *Config) { c.Mappings[1].Box = "/homeassistant/apps" }, "se solapa"},
-		{"box hermano con prefijo común", func(c *Config) { c.Mappings[1].Box = "/homeassistant2" }, ""},
-		{"glob inválido", func(c *Config) { c.Mappings[0].Include = []string{"[a"} }, "include[0]"},
-		{"glob absoluto", func(c *Config) { c.Mappings[0].Exclude = []string{"/x"} }, "exclude[0]"},
-		{"glob vacío", func(c *Config) { c.Mappings[0].PushOnly = []string{""} }, "push_only[0]"},
+		{"nested repo", func(c *Config) { c.Mappings[1].Repo = "config/apps" }, "overlaps"},
+		{"relative box", func(c *Config) { c.Mappings[0].Box = "homeassistant" }, "mappings[0].box"},
+		{"root box", func(c *Config) { c.Mappings[0].Box = "/" }, "mappings[0].box"},
+		{"nested box", func(c *Config) { c.Mappings[1].Box = "/homeassistant/apps" }, "overlaps"},
+		{"sibling box with common prefix", func(c *Config) { c.Mappings[1].Box = "/homeassistant2" }, ""},
+		{"invalid glob", func(c *Config) { c.Mappings[0].Include = []string{"[a"} }, "include[0]"},
+		{"absolute glob", func(c *Config) { c.Mappings[0].Exclude = []string{"/x"} }, "exclude[0]"},
+		{"empty glob", func(c *Config) { c.Mappings[0].PushOnly = []string{""} }, "push_only[0]"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -137,9 +137,9 @@ func TestValidateMappings(t *testing.T) {
 			err := c.Validate(ValidateOptions{})
 			switch {
 			case tt.wantErr == "" && err != nil:
-				t.Errorf("no quería error, dio %v", err)
+				t.Errorf("want no error, got %v", err)
 			case tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)):
-				t.Errorf("quería un error con %q, dio %v", tt.wantErr, err)
+				t.Errorf("want an error containing %q, got %v", tt.wantErr, err)
 			}
 		})
 	}
@@ -148,12 +148,12 @@ func TestValidateMappings(t *testing.T) {
 func TestValidateBranch(t *testing.T) {
 	for _, ok := range []string{"main", "box", "box/rpi4", "release-1.0"} {
 		if err := validateBranch(ok); err != nil {
-			t.Errorf("%q debería ser válida: %v", ok, err)
+			t.Errorf("%q should be valid: %v", ok, err)
 		}
 	}
 	for _, bad := range []string{"", "-main", "a..b", "a b", "a:b", "x.lock", "a/", "/a", "a//b", "a@{1}", "a~1", "a^", "a*", "a\x01"} {
 		if err := validateBranch(bad); err == nil {
-			t.Errorf("%q debería ser inválida", bad)
+			t.Errorf("%q should be invalid", bad)
 		}
 	}
 }
@@ -192,7 +192,7 @@ func TestValidateRepoURL(t *testing.T) {
 	for _, tt := range tests {
 		err := ValidateRepoURL(tt.url, tt.allowFile)
 		if (err == nil) != tt.ok {
-			t.Errorf("ValidateRepoURL(%q, allowFile=%v) = %v, quería ok=%v", tt.url, tt.allowFile, err, tt.ok)
+			t.Errorf("ValidateRepoURL(%q, allowFile=%v) = %v, want ok=%v", tt.url, tt.allowFile, err, tt.ok)
 		}
 	}
 }

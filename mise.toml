@@ -3,11 +3,11 @@ go = "1.27.4"
 golangci-lint = "2.15.0"
 
 [tasks.build]
-description = "Compila hcs en bin/"
+description = "Build hcs into bin/"
 run = "go build -o bin/hcs ./cmd/hcs"
 
 [tasks.test]
-description = "Tests con el race detector"
+description = "Tests with the race detector"
 run = "go test -race ./..."
 
 [tasks.lint]
@@ -15,29 +15,29 @@ description = "go vet + golangci-lint"
 run = ["go vet ./...", "golangci-lint run"]
 
 [tasks.fuzz]
-description = "Fuzzing de los parsers y matchers (fuera del ciclo normal)"
+description = "Fuzz the parsers and matchers (outside the normal cycle)"
 run = "go test ./internal/paths -run '^$' -fuzz FuzzClassifyRepoPath -fuzztime 60s"
 
 [tasks."test:ha-core"]
-description = "Cliente de HA contra un Core real en Docker (scripts/ha-core-test.sh)"
+description = "HA client against a real Core in Docker (scripts/ha-core-test.sh)"
 run = "scripts/ha-core-test.sh"
 
 [tasks."test:e2e"]
-description = "E2E sobre la config sintética de testdata/ con check_config real en Docker (E2E_CHECKER=noop sin Docker)"
+description = "E2E on the synthetic config in testdata/ with the real check_config in Docker (E2E_CHECKER=noop without Docker)"
 run = "scripts/e2e-sandbox.sh"
 
 [tasks."supervisor:up"]
-description = "Supervisor real en Docker (devcontainer de add-ons) con la app local montada"
+description = "Real Supervisor in Docker (add-on devcontainer) with the local app mounted"
 run = "scripts/supervisor-dev.sh up"
 
 [tasks."supervisor:down"]
-description = "Borra el Supervisor de prueba y sus volúmenes"
+description = "Remove the test Supervisor and its volumes"
 run = "scripts/supervisor-dev.sh down"
 
 [tasks."test:supervisor"]
-description = "Build, opciones, arranque y ciclo completo de la app en el Supervisor de prueba"
+description = "Build, options, startup and a full app cycle on the test Supervisor"
 run = "scripts/supervisor-test.sh"
 
 [tasks.check]
-description = "Lo que tiene que pasar antes de cada commit"
+description = "What must pass before every commit"
 depends = ["lint", "test", "build"]

@@ -13,39 +13,39 @@ import (
 	"time"
 )
 
-// Valores por defecto del cliente del Supervisor (design.md §10).
+// Supervisor client defaults (design.md §10).
 const (
 	DefaultCoreURL        = "http://supervisor/core/api"
 	DefaultCheckTimeout   = 120 * time.Second
 	DefaultRequestTimeout = 30 * time.Second
-	// EventType es el tipo de evento que se dispara en el bus de HA.
+	// EventType is the event type fired on the HA bus.
 	EventType = "homeassistant_config_sync"
-	// NotificationID hace que la notificación persistente se actualice en
-	// vez de apilarse.
+	// NotificationID makes the persistent notification update in place
+	// instead of stacking up.
 	NotificationID = "homeassistant_config_sync"
 )
 
-// maxBody acota lo que se lee de una respuesta de HA.
+// maxBody bounds how much of an HA response is read.
 const maxBody = 1 << 20
 
-// ErrNoToken indica que no hay SUPERVISOR_TOKEN (no corre como app de HA).
-var ErrNoToken = errors.New("no hay SUPERVISOR_TOKEN: el cliente del Supervisor solo funciona dentro de una app de Home Assistant")
+// ErrNoToken means there is no SUPERVISOR_TOKEN (not running as an HA app).
+var ErrNoToken = errors.New("no SUPERVISOR_TOKEN: the Supervisor client only works inside a Home Assistant app")
 
-// Supervisor habla con Home Assistant Core a través del proxy del
-// Supervisor, autenticado con el SUPERVISOR_TOKEN que recibe la app con
-// homeassistant_api: true. No usa tokens de larga duración.
+// Supervisor talks to Home Assistant Core through the Supervisor proxy,
+// authenticated with the SUPERVISOR_TOKEN the app receives with
+// homeassistant_api: true. It does not use long-lived tokens.
 type Supervisor struct {
 	BaseURL        string
 	Token          string
 	HTTP           *http.Client
 	CheckTimeout   time.Duration
 	RequestTimeout time.Duration
-	// NotifyService es opcional ("notify.mobile_app_x"): además de la
-	// notificación persistente, se manda ahí lo que pida intervención.
+	// NotifyService is optional ("notify.mobile_app_x"): on top of the
+	// persistent notification, anything that needs intervention is sent there.
 	NotifyService string
 }
 
-// NewSupervisorFromEnv arma el cliente con SUPERVISOR_TOKEN.
+// NewSupervisorFromEnv builds the client with SUPERVISOR_TOKEN.
 func NewSupervisorFromEnv(notifyService string) (*Supervisor, error) {
 	tok := os.Getenv("SUPERVISOR_TOKEN")
 	if tok == "" {
@@ -54,7 +54,7 @@ func NewSupervisorFromEnv(notifyService string) (*Supervisor, error) {
 	return &Supervisor{Token: tok, NotifyService: notifyService}, nil
 }
 
-// APIError es una respuesta no exitosa de HA. Nunca incluye el token.
+// APIError is a non-successful response from HA. It never includes the token.
 type APIError struct {
 	Method string
 	Path   string
@@ -63,7 +63,7 @@ type APIError struct {
 }
 
 func (e *APIError) Error() string {
-	return fmt.Sprintf("home assistant respondió %d a %s %s: %s", e.Status, e.Method, e.Path, e.Body)
+	return fmt.Sprintf("home assistant responded %d to %s %s: %s", e.Status, e.Method, e.Path, e.Body)
 }
 
 func (s *Supervisor) base() string {
@@ -87,7 +87,7 @@ func orDefault(d, def time.Duration) time.Duration {
 	return def
 }
 
-// post manda un JSON y decodifica la respuesta en out (si no es nil).
+// post sends a JSON body and decodes the response into out (if not nil).
 func (s *Supervisor) post(ctx context.Context, path string, timeout time.Duration, body, out any) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -103,7 +103,7 @@ func (s *Supervisor) post(ctx context.Context, path string, timeout time.Duratio
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := s.client().Do(req)
 	if err != nil {
-		// El error de net/http incluye la URL, nunca los headers.
+		// The net/http error includes the URL, never the headers.
 		return fmt.Errorf("POST %s: %w", path, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -116,13 +116,13 @@ func (s *Supervisor) post(ctx context.Context, path string, timeout time.Duratio
 	}
 	if out != nil {
 		if err := json.Unmarshal(data, out); err != nil {
-			return fmt.Errorf("POST %s: respuesta inesperada: %w", path, err)
+			return fmt.Errorf("POST %s: unexpected response: %w", path, err)
 		}
 	}
 	return nil
 }
 
-// CheckConfig implementa Checker con POST /api/config/core/check_config.
+// CheckConfig implements Checker with POST /api/config/core/check_config.
 func (s *Supervisor) CheckConfig(ctx context.Context) (CheckResult, error) {
 	var resp struct {
 		Result   string  `json:"result"`
@@ -144,24 +144,25 @@ func (s *Supervisor) CheckConfig(ctx context.Context) (CheckResult, error) {
 	case "valid":
 		return CheckResult{Valid: true, Warnings: warnings}, nil
 	case "invalid":
-		msg := "check_config devolvió invalid sin detalle"
+		msg := "check_config returned invalid without details"
 		if resp.Errors != nil && *resp.Errors != "" {
 			msg = *resp.Errors
 		}
 		return CheckResult{Valid: false, Errors: msg, Warnings: warnings}, nil
 	default:
-		return CheckResult{}, fmt.Errorf("check_config devolvió un resultado desconocido: %q", resp.Result)
+		return CheckResult{}, fmt.Errorf("check_config returned an unknown result: %q", resp.Result)
 	}
 }
 
-// ReloadAll implementa Reloader con homeassistant.reload_all.
+// ReloadAll implements Reloader with homeassistant.reload_all.
 func (s *Supervisor) ReloadAll(ctx context.Context) error {
 	return s.post(ctx, "/services/homeassistant/reload_all", orDefault(s.RequestTimeout, DefaultRequestTimeout), struct{}{}, nil)
 }
 
-// Notify implementa Notifier: siempre dispara el evento; si el evento pide
-// intervención, crea (o actualiza) la notificación persistente y avisa por
-// NotifyService; si el sync volvió a la normalidad, la descarta.
+// Notify implements Notifier: it always fires the event; if the event needs
+// intervention, it creates (or updates) the persistent notification and
+// notifies through NotifyService; if the sync is back to normal, it dismisses
+// the notification.
 func (s *Supervisor) Notify(ctx context.Context, ev Event) error {
 	timeout := orDefault(s.RequestTimeout, DefaultRequestTimeout)
 	payload := map[string]any{"type": ev.Type, "title": ev.Title, "message": ev.Message}

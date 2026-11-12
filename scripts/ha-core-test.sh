@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Test de integración del cliente de HA (internal/ha) contra un Home
-# Assistant Core real en Docker, versión fijada.
+# Integration test of the HA client (internal/ha) against a real Home
+# Assistant Core in Docker, pinned version.
 #
-# Levanta un Core descartable con una config mínima (sin integraciones de
-# red), hace el onboarding con un usuario de prueba de contraseña aleatoria
-# (nunca se imprime ni se guarda), saca un access token de corta duración y
-# corre `go test -tags integration ./internal/ha/`. Al final borra el
-# contenedor y su volumen.
+# Starts a throwaway Core with a minimal config (no network integrations),
+# runs onboarding with a test user with a random password (never printed or
+# stored), gets a short-lived access token and runs
+# `go test -tags integration ./internal/ha/`. At the end it removes the
+# container and its volume.
 #
-# Lo único que no cubre es el proxy del Supervisor: acá el cliente le habla
-# directo a Core en /api en vez de a http://supervisor/core/api.
+# The only thing it does not cover is the Supervisor proxy: here the client
+# talks to Core directly at /api instead of http://supervisor/core/api.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -40,23 +40,23 @@ input_boolean:
 EOF'
 docker run -d --name "$name" -p "127.0.0.1:$port:8123" -v "$name:/config" "$image" >/dev/null
 
-printf "esperando a Home Assistant"
+printf "waiting for Home Assistant"
 for _ in $(seq 1 120); do
   if curl -fs "$base/api/onboarding" >/dev/null 2>&1; then break; fi
   printf "."; sleep 1
 done
 echo
-curl -fs "$base/api/onboarding" >/dev/null || { echo "HA no levantó"; docker logs --tail 30 "$name"; exit 1; }
+curl -fs "$base/api/onboarding" >/dev/null || { echo "HA did not start"; docker logs --tail 30 "$name"; exit 1; }
 
 client_id="$base/"
 password=$(head -c 24 /dev/urandom | base64 | tr -d '/+=')
 auth_code=$(curl -fs -X POST "$base/api/onboarding/users" -H 'Content-Type: application/json' \
-  -d "{\"client_id\": \"$client_id\", \"name\": \"hcs test\", \"username\": \"hcs-test\", \"password\": \"$password\", \"language\": \"es\"}" \
+  -d "{\"client_id\": \"$client_id\", \"name\": \"hcs test\", \"username\": \"hcs-test\", \"password\": \"$password\", \"language\": \"en\"}" \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["auth_code"])')
 unset password
 token=$(curl -fs -X POST "$base/auth/token" -d grant_type=authorization_code -d "code=$auth_code" -d "client_id=$client_id" \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
-echo "onboarding hecho; corriendo los tests de integración"
+echo "onboarding done; running the integration tests"
 
 HCS_HA_URL="$base/api" HCS_HA_TOKEN="$token" HCS_HA_CONTAINER="$name" \
   mise exec -- go test -count=1 -tags integration -run Integration -v ./internal/ha/

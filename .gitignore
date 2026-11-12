@@ -1,7 +1,7 @@
-# Binarios y artefactos de build
+# Binaries and build artifacts
 /dist/
 /bin/
 /homeassistant_config_sync/bin/
 
-# Estado local de pruebas (copias del box, repos bare de prueba, deploy keys de test)
+# Local test state (box copies, test bare repos, test deploy keys)
 /.sandbox/

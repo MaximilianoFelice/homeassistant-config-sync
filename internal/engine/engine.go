@@ -1,6 +1,6 @@
-// Package engine arma el ciclo completo de sync (design.md §6): fetch,
-// snapshot, merge, apply, publicar, reload. Persiste su estado en el state
-// dir y garantiza que corre un solo ciclo a la vez.
+// Package engine runs the full sync cycle (design.md §6): fetch, snapshot,
+// merge, apply, publish, reload. It persists its state in the state dir and
+// guarantees that only one cycle runs at a time.
 package engine
 
 import (
@@ -26,20 +26,20 @@ import (
 	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/snapshot"
 )
 
-// maxAttempts es cuántas veces se reintenta un ciclo dentro de una misma
-// ejecución cuando el disco o main cambian en el medio.
+// maxAttempts is how many times a cycle is retried within a single run when
+// the disk or main change midway.
 const maxAttempts = 3
 
-// Errores del motor.
+// Engine errors.
 var (
-	ErrBusy           = errors.New("ya hay un ciclo de sync corriendo")
-	ErrNotInitialized = errors.New("el state dir no está inicializado (corré hcs init)")
-	ErrBoxDiverged    = errors.New("la rama box del remoto tiene commits que la local no tiene: alguien pusheó a box")
-	ErrTooManyRetries = errors.New("el disco o main cambiaron en cada intento; se reintenta en el próximo ciclo")
-	ErrPullOnly       = errors.New("mode: pull_only todavía no está implementado")
+	ErrBusy           = errors.New("a sync cycle is already running")
+	ErrNotInitialized = errors.New("the state dir is not initialized (run hcs init)")
+	ErrBoxDiverged    = errors.New("the remote box branch has commits the local one lacks: someone pushed to box")
+	ErrTooManyRetries = errors.New("the disk or main changed on every attempt; will retry on the next cycle")
+	ErrPullOnly       = errors.New("mode: pull_only is not implemented yet")
 )
 
-// Options configura el motor.
+// Options configures the engine.
 type Options struct {
 	Config          *config.Config
 	StateDir        string
@@ -52,18 +52,18 @@ type Options struct {
 	hooks hooks
 }
 
-// hooks son puntos de inyección para tests.
+// hooks are injection points for tests.
 type hooks struct {
-	// beforePush corre justo antes de cada push (simula que main avanza).
+	// beforePush runs right before each push (simulates main moving ahead).
 	beforePush func(attempt int)
-	// beforeApply corre entre el merge y el apply (simula una edición en la UI).
+	// beforeApply runs between merge and apply (simulates an edit in the UI).
 	beforeApply func(attempt int)
-	// afterApply corre después de un apply exitoso; si devuelve error, el
-	// ciclo sale sin mover box (simula que el proceso muere).
+	// afterApply runs after a successful apply; if it returns an error, the
+	// cycle exits without moving box (simulates the process dying).
 	afterApply func() error
 }
 
-// Engine es el motor.
+// Engine is the sync engine.
 type Engine struct {
 	cfg     *config.Config
 	dir     string
@@ -80,11 +80,11 @@ type Engine struct {
 	boxRef, trackMain, trackBox string
 }
 
-// New crea un motor. Valida la configuración.
+// New creates an engine. It validates the configuration.
 func New(opts Options) (*Engine, error) {
 	cfg := opts.Config
 	if err := cfg.Validate(config.ValidateOptions{AllowFileRemote: opts.AllowFileRemote}); err != nil {
-		return nil, fmt.Errorf("config inválida:\n%w", err)
+		return nil, fmt.Errorf("invalid config:\n%w", err)
 	}
 	m, err := paths.New(cfg.Mappings)
 	if err != nil {
@@ -126,14 +126,14 @@ func (e *Engine) path(elem ...string) string {
 	return filepath.Join(append([]string{e.dir}, elem...)...)
 }
 
-// InitResult es el resultado de Init.
+// InitResult is the result of Init.
 type InitResult struct {
 	DeployKey string
 	Created   bool
 }
 
-// Init crea el state dir, el repo bare, la deploy key y known_hosts. Es
-// idempotente: nunca pisa una deploy key existente.
+// Init creates the state dir, the bare repo, the deploy key and known_hosts.
+// It is idempotent: it never overwrites an existing deploy key.
 func (e *Engine) Init(ctx context.Context) (*InitResult, error) {
 	if err := os.MkdirAll(e.dir, 0o700); err != nil {
 		return nil, err
@@ -155,24 +155,24 @@ func (e *Engine) Init(ctx context.Context) (*InitResult, error) {
 	if err := ensureAPIToken(e.path("api_token")); err != nil {
 		return nil, err
 	}
-	// Reabrir con la clave recién creada.
+	// Reopen with the newly created key.
 	e.repo = gitx.Open(e.path("repo.git"), gitx.Options{
 		AllowFile: e.allowFile, SSHKey: e.path("ssh", "id_ed25519"), KnownHosts: e.path("ssh", "known_hosts"),
 	})
 	return &InitResult{DeployKey: pub, Created: created}, nil
 }
 
-// SyncOptions ajusta un ciclo.
+// SyncOptions tunes a cycle.
 type SyncOptions struct {
-	// DryRun calcula qué pasaría sin commitear, aplicar ni pushear.
+	// DryRun computes what would happen without committing, applying or pushing.
 	DryRun bool
-	// AcceptBootstrap confirma el primer merge de box en un main existente.
+	// AcceptBootstrap confirms the first merge of box into an existing main.
 	AcceptBootstrap bool
-	// AllowMassDelete confirma un borrado masivo en el snapshot.
+	// AllowMassDelete confirms a mass delete in the snapshot.
 	AllowMassDelete bool
 }
 
-// Report cuenta qué pasó en un ciclo.
+// Report describes what happened in a cycle.
 type Report struct {
 	State    string `json:"state"`
 	Attempts int    `json:"attempts"`
@@ -197,9 +197,9 @@ type Report struct {
 	Error          string               `json:"error,omitempty"`
 }
 
-// Sync corre un ciclo completo. Los estados que piden intervención del
-// usuario (conflicto, rechazo, secretos…) no son errores: vienen en
-// Report.State. El error es para fallas inesperadas (red, git, disco).
+// Sync runs a full cycle. States that need user intervention (conflict,
+// rejection, secrets…) are not errors: they come in Report.State. The error
+// is for unexpected failures (network, git, disk).
 func (e *Engine) Sync(ctx context.Context, so SyncOptions) (*Report, error) {
 	if _, err := os.Stat(e.path("repo.git")); errors.Is(err, fs.ErrNotExist) {
 		return nil, ErrNotInitialized
@@ -230,9 +230,9 @@ func (e *Engine) Sync(ctx context.Context, so SyncOptions) (*Report, error) {
 	st.BoxHead, _ = e.repo.ResolveRef(ctx, e.boxRef)
 	st.MainHead, _ = e.repo.ResolveRef(ctx, e.trackMain)
 
-	// Un problema que se repite ciclo tras ciclo (por ejemplo, un conflicto
-	// sin resolver o la red caída) se avisa una sola vez: si no, con el
-	// intervalo de 5 minutos llegaría una notificación cada 5 minutos.
+	// A problem that repeats cycle after cycle (for example, an unresolved
+	// conflict or the network being down) is reported only once: otherwise,
+	// with the 5-minute interval a notification would arrive every 5 minutes.
 	ev, notify := eventFor(rep)
 	if notify {
 		key := notifyKey(ev)
@@ -250,13 +250,13 @@ func (e *Engine) Sync(ctx context.Context, so SyncOptions) (*Report, error) {
 	}
 	if notify {
 		if err := e.notify.Notify(ctx, ev); err != nil && cerr == nil {
-			rep.Error = "no se pudo notificar a Home Assistant: " + err.Error()
+			rep.Error = "could not notify Home Assistant: " + err.Error()
 		}
 	}
 	return rep, cerr
 }
 
-// notifyKey identifica un aviso para no repetirlo.
+// notifyKey identifies a notification so it is not repeated.
 func notifyKey(ev ha.Event) string {
 	h := sha256.Sum256([]byte(ev.Type + "\x00" + ev.Message))
 	return hex.EncodeToString(h[:8])
@@ -267,7 +267,7 @@ func (e *Engine) cycle(ctx context.Context, st *State, rep *Report, so SyncOptio
 		return ErrPullOnly
 	}
 
-	// 0. Un apply interrumpido se resuelve antes que nada.
+	// 0. An interrupted apply is resolved before anything else.
 	if !so.DryRun {
 		outcome, j, err := apply.Recover(ctx, e.repo, e.m, e.path("apply.json"))
 		if err != nil {
@@ -302,9 +302,9 @@ func (e *Engine) cycle(ctx context.Context, st *State, rep *Report, so SyncOptio
 			case originBox != "":
 				localBox = originBox
 			case originMain != "":
-				// Bootstrap sobre un main existente: el snapshot se arma con
-				// main como padre, así el diff main..box muestra exactamente
-				// en qué difiere el box del repo.
+				// Bootstrap on an existing main: the snapshot is built with
+				// main as its parent, so the main..box diff shows exactly
+				// how the box differs from the repo.
 				localBox = originMain
 				st.BootstrapPending = true
 			}
@@ -327,7 +327,7 @@ func (e *Engine) cycle(ctx context.Context, st *State, rep *Report, so SyncOptio
 		// 2. Snapshot.
 		snapRef := e.boxRef
 		if so.DryRun && localBox != "" {
-			snapRef = localBox // el ref puede no existir todavía en dry-run
+			snapRef = localBox // the ref may not exist yet in dry-run
 		}
 		sres, err := snapshot.Take(ctx, e.repo, snapshot.Options{
 			Matcher: e.m, Ref: snapRef, MaxFileSize: int64(e.cfg.MaxFileSizeKB) << 10,
@@ -365,13 +365,13 @@ func (e *Engine) cycle(ctx context.Context, st *State, rep *Report, so SyncOptio
 			b = sres.Commit
 		}
 		if b == "" {
-			// Ni remoto ni box: no hay nada gestionado todavía (dry-run de un
-			// box vacío).
+			// Neither remote nor box: nothing is managed yet (dry-run of an
+			// empty box).
 			rep.State = StateIdle
 			return nil
 		}
 
-		// Bootstrap pendiente: se publica box y se espera la revisión.
+		// Pending bootstrap: publish box and wait for the review.
 		if st.BootstrapPending {
 			merged := false
 			if originMain != "" {
@@ -434,7 +434,7 @@ func (e *Engine) cycle(ctx context.Context, st *State, rep *Report, so SyncOptio
 			}
 			switch {
 			case errors.Is(err, apply.ErrDiskChanged):
-				continue // alguien editó en el medio: otro snapshot
+				continue // someone edited midway: take another snapshot
 			case errors.Is(err, apply.ErrPrecheck), errors.Is(err, apply.ErrRejected), errors.Is(err, apply.ErrCheckUnavailable):
 				st.Rejected = &Rejected{Main: originMain, Box: b, Errors: err.Error()}
 				rep.State, rep.Error = StateRejected, err.Error()
@@ -450,7 +450,7 @@ func (e *Engine) cycle(ctx context.Context, st *State, rep *Report, so SyncOptio
 			}
 		}
 
-		// 5. Publicar: primero box local (el disco ya está en R), después el remoto.
+		// 5. Publish: local box first (the disk is already at R), then the remote.
 		if r != b {
 			if err := e.repo.UpdateRef(ctx, e.boxRef, r, b); err != nil {
 				return err
@@ -477,12 +477,12 @@ func (e *Engine) cycle(ctx context.Context, st *State, rep *Report, so SyncOptio
 		}
 		if err := e.repo.Push(ctx, url, refspecs...); err != nil {
 			if errors.Is(err, gitx.ErrPushRejected) {
-				continue // main avanzó: se vuelve a mergear contra el nuevo
+				continue // main moved ahead: merge again against the new one
 			}
 			return err
 		}
 		rep.Pushed = refspecs
-		// Los refs de seguimiento reflejan lo que acabamos de publicar.
+		// The tracking refs reflect what we just published.
 		if err := e.track(ctx, e.trackMain, r, originMain); err != nil {
 			return err
 		}
@@ -493,7 +493,7 @@ func (e *Engine) cycle(ctx context.Context, st *State, rep *Report, so SyncOptio
 		// 6. Reload.
 		if rep.Applied && rep.Checked && e.cfg.Reload == config.ReloadAuto {
 			if err := e.reload.ReloadAll(ctx); err != nil {
-				rep.Error = "el sync terminó, pero falló el reload: " + err.Error()
+				rep.Error = "the sync finished, but the reload failed: " + err.Error()
 			} else {
 				rep.Reloaded = true
 			}
@@ -504,8 +504,8 @@ func (e *Engine) cycle(ctx context.Context, st *State, rep *Report, so SyncOptio
 	return ErrTooManyRetries
 }
 
-// fetch sincroniza los refs de seguimiento con el remoto y devuelve sus
-// puntas ("" si la rama no existe).
+// fetch syncs the tracking refs with the remote and returns their tips (""
+// if the branch does not exist).
 func (e *Engine) fetch(ctx context.Context, url string) (originMain, originBox string, err error) {
 	heads, err := e.repo.LsRemote(ctx, url)
 	if err != nil {
@@ -533,7 +533,7 @@ func (e *Engine) fetch(ctx context.Context, url string) (originMain, originBox s
 	return originMain, originBox, nil
 }
 
-// pushBox publica solo la rama box (estados que frenan antes de main).
+// pushBox publishes only the box branch (states that stop before main).
 func (e *Engine) pushBox(ctx context.Context, url, b, originBox string, rep *Report, so SyncOptions) error {
 	if so.DryRun || b == originBox {
 		return nil
@@ -549,7 +549,7 @@ func (e *Engine) pushBox(ctx context.Context, url, b, originBox string, rep *Rep
 	return nil
 }
 
-// track mueve un ref de seguimiento después de un push exitoso.
+// track moves a tracking ref after a successful push.
 func (e *Engine) track(ctx context.Context, ref, to, from string) error {
 	if to == from {
 		return nil
@@ -562,7 +562,7 @@ func (e *Engine) boxWins(repoPath string) bool {
 	return r.Managed && r.Direction == paths.PushOnly
 }
 
-// needsRestart marca los cambios que reload_all no cubre (design.md §7).
+// needsRestart flags the changes that reload_all does not cover (design.md §7).
 func (e *Engine) needsRestart(plan *apply.Plan) bool {
 	mappings := e.m.Mappings()
 	for _, op := range plan.Ops {
@@ -577,7 +577,7 @@ func (e *Engine) needsRestart(plan *apply.Plan) bool {
 	return false
 }
 
-// eventFor decide qué contarle a Home Assistant después de un ciclo.
+// eventFor decides what to tell Home Assistant after a cycle.
 func eventFor(rep *Report) (ha.Event, bool) {
 	data := map[string]any{"state": rep.State}
 	switch rep.State {
@@ -585,36 +585,36 @@ func eventFor(rep *Report) (ha.Event, bool) {
 		if rep.SnapshotCommit == "" && !rep.Applied && len(rep.Pushed) == 0 {
 			return ha.Event{}, false
 		}
-		msg := "Sincronización completa."
+		msg := "Sync complete."
 		if rep.Restart {
-			msg += " Algunos cambios necesitan reiniciar Home Assistant."
+			msg += " Some changes need a Home Assistant restart."
 		}
-		return ha.Event{Type: ha.EventSyncFinished, Title: "Config Sync", Message: msg, Data: data, Persistent: rep.Restart}, true
+		return ha.Event{Type: ha.EventSyncFinished, Title: "Git Config Sync", Message: msg, Data: data, Persistent: rep.Restart}, true
 	case StateConflict:
 		data["paths"] = rep.ConflictPaths
-		return ha.Event{Type: ha.EventConflict, Title: "Config Sync: conflicto",
-			Message: "Hay cambios incompatibles entre el box y main en: " + strings.Join(rep.ConflictPaths, ", ") +
-				". Se pusheó la rama box; resolvé el merge en local o en GitHub.", Data: data, Persistent: true}, true
+		return ha.Event{Type: ha.EventConflict, Title: "Git Config Sync: conflict",
+			Message: "There are incompatible changes between the box and main in: " + strings.Join(rep.ConflictPaths, ", ") +
+				". The box branch was pushed; resolve the merge locally or on GitHub.", Data: data, Persistent: true}, true
 	case StateRejected:
-		return ha.Event{Type: ha.EventRejected, Title: "Config Sync: cambio rechazado",
-			Message: "El cambio de main no se aplicó porque la config no es válida:\n" + rep.Error, Data: data, Persistent: true}, true
+		return ha.Event{Type: ha.EventRejected, Title: "Git Config Sync: change rejected",
+			Message: "The change from main was not applied because the config is not valid:\n" + rep.Error, Data: data, Persistent: true}, true
 	case StateBlockedSecrets:
 		var lines []string
 		for _, f := range rep.Findings {
 			lines = append(lines, f.Path+":"+fmt.Sprint(f.Line)+" ("+f.Rule+")")
 		}
 		data["findings"] = lines
-		return ha.Event{Type: ha.EventBlockedSecrets, Title: "Config Sync: posible secreto",
-			Message: "No se subió nada porque hay posibles secretos en: " + strings.Join(lines, ", ") +
-				". Movelos a secrets.yaml y usá !secret.", Data: data, Persistent: true}, true
+		return ha.Event{Type: ha.EventBlockedSecrets, Title: "Git Config Sync: possible secret",
+			Message: "Nothing was pushed because there are possible secrets in: " + strings.Join(lines, ", ") +
+				". Move them to secrets.yaml and use !secret.", Data: data, Persistent: true}, true
 	case StateBootstrapReview:
-		return ha.Event{Type: ha.EventBootstrap, Title: "Config Sync: revisá el primer sync",
-			Message: "Se subió la rama box con las diferencias entre tu Home Assistant y el repo. Revisá box contra main y mergealo, o confirmá con accept_bootstrap.",
+		return ha.Event{Type: ha.EventBootstrap, Title: "Git Config Sync: review the first sync",
+			Message: "The box branch was pushed with the differences between your Home Assistant and the repo. Review box against main and merge it, or confirm with accept_bootstrap.",
 			Data:    data, Persistent: true}, true
 	case StateSuspiciousSnapshot:
-		return ha.Event{Type: ha.EventSuspicious, Title: "Config Sync: snapshot frenado",
+		return ha.Event{Type: ha.EventSuspicious, Title: "Git Config Sync: snapshot stopped",
 			Message: rep.Error, Data: data, Persistent: true}, true
 	default:
-		return ha.Event{Type: ha.EventError, Title: "Config Sync: error", Message: rep.Error, Data: data, Persistent: true}, true
+		return ha.Event{Type: ha.EventError, Title: "Git Config Sync: error", Message: rep.Error, Data: data, Persistent: true}, true
 	}
 }

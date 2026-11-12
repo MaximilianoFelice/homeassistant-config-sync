@@ -15,8 +15,8 @@ import (
 
 var ctx = context.Background()
 
-// del marca un borrado en commit().
-const del = "\x00borrar"
+// del marks a deletion in commit().
+const del = "\x00delete"
 
 type h struct {
 	t    *testing.T
@@ -26,7 +26,7 @@ type h struct {
 
 func newH(t *testing.T) *h { return &h{t: t, repo: testkit.NewBareRepo(t)} }
 
-// commit crea un commit sobre parent ("" = raíz) aplicando changes.
+// commit creates a commit on top of parent ("" = root) applying changes.
 func (h *h) commit(parent string, changes map[string]string) string {
 	h.t.Helper()
 	base := ""
@@ -74,11 +74,11 @@ func (h *h) merge(box, main string, opts merge.Options) *merge.Result {
 	return res
 }
 
-// files devuelve el contenido de un commit.
+// files returns a commit's content.
 func (h *h) files(commit string) map[string]string {
 	h.t.Helper()
 	if err := h.repo.UpdateRef(ctx, "refs/heads/tmp", commit, ""); err != nil {
-		// tmp ya existe: lo pisamos con su valor actual como "old".
+		// tmp already exists: overwrite it using its current value as "old".
 		cur, _ := h.repo.ResolveRef(ctx, "refs/heads/tmp")
 		if err := h.repo.UpdateRef(ctx, "refs/heads/tmp", commit, cur); err != nil {
 			h.t.Fatal(err)
@@ -89,7 +89,7 @@ func (h *h) files(commit string) map[string]string {
 
 func (h *h) parents(commit string) []string {
 	h.t.Helper()
-	// commit^@ lista los padres en orden.
+	// commit^N resolves the parents in order.
 	var out []string
 	for i := 1; ; i++ {
 		p, err := h.repo.ResolveRef(ctx, commit+"^"+string(rune('0'+i)))
@@ -106,8 +106,8 @@ func (h *h) parents(commit string) []string {
 func lovelace(p string) bool { return strings.HasPrefix(p, "config/.storage/lovelace") }
 
 var base = map[string]string{
-	"README.md":                "# casa\n",
-	"config/automations.yaml":  "uno\ndos\ntres\ncuatro\ncinco\n",
+	"README.md":                "# home\n",
+	"config/automations.yaml":  "one\ntwo\nthree\nfour\nfive\n",
 	"config/scripts.yaml":      "s: 1\n",
 	"config/.storage/lovelace": "{\"v\": 1}\n",
 }
@@ -152,31 +152,31 @@ func TestDifferentFilesMergeCleanly(t *testing.T) {
 	h := newH(t)
 	root := h.commit("", base)
 	b := h.commit(root, map[string]string{"config/scripts.yaml": "s: box\n"})
-	m := h.commit(root, map[string]string{"config/packages/nuevo.yaml": "n: main\n", "README.md": "# casa v2\n"})
+	m := h.commit(root, map[string]string{"config/packages/new.yaml": "n: main\n", "README.md": "# home v2\n"})
 
 	res := h.merge(b, m, merge.Options{BoxWins: lovelace})
 	if res.Kind != merge.Merged || res.R == "" {
 		t.Fatalf("= %+v", res)
 	}
 	if got := h.parents(res.R); !slices.Equal(got, []string{m, b}) {
-		t.Errorf("padres = %v, quería [main box] = [%s %s]", got, m, b)
+		t.Errorf("parents = %v, want [main box] = [%s %s]", got, m, b)
 	}
 	f := h.files(res.R)
-	if f["config/scripts.yaml"] != "s: box\n" || f["config/packages/nuevo.yaml"] != "n: main\n" || f["README.md"] != "# casa v2\n" {
-		t.Errorf("árbol = %v", f)
+	if f["config/scripts.yaml"] != "s: box\n" || f["config/packages/new.yaml"] != "n: main\n" || f["README.md"] != "# home v2\n" {
+		t.Errorf("tree = %v", f)
 	}
 }
 
 func TestSameFileDifferentHunksMergeCleanly(t *testing.T) {
 	h := newH(t)
 	root := h.commit("", base)
-	b := h.commit(root, map[string]string{"config/automations.yaml": "UNO\ndos\ntres\ncuatro\ncinco\n"})
-	m := h.commit(root, map[string]string{"config/automations.yaml": "uno\ndos\ntres\ncuatro\nCINCO\n"})
+	b := h.commit(root, map[string]string{"config/automations.yaml": "ONE\ntwo\nthree\nfour\nfive\n"})
+	m := h.commit(root, map[string]string{"config/automations.yaml": "one\ntwo\nthree\nfour\nFIVE\n"})
 	res := h.merge(b, m, merge.Options{})
 	if res.Kind != merge.Merged {
 		t.Fatalf("= %+v", res)
 	}
-	if got := h.files(res.R)["config/automations.yaml"]; got != "UNO\ndos\ntres\ncuatro\nCINCO\n" {
+	if got := h.files(res.R)["config/automations.yaml"]; got != "ONE\ntwo\nthree\nfour\nFIVE\n" {
 		t.Errorf("automations = %q", got)
 	}
 }
@@ -184,8 +184,8 @@ func TestSameFileDifferentHunksMergeCleanly(t *testing.T) {
 func TestSameHunkIsAConflict(t *testing.T) {
 	h := newH(t)
 	root := h.commit("", base)
-	b := h.commit(root, map[string]string{"config/automations.yaml": "BOX\ndos\ntres\ncuatro\ncinco\n", "config/scripts.yaml": "s: box\n"})
-	m := h.commit(root, map[string]string{"config/automations.yaml": "MAIN\ndos\ntres\ncuatro\ncinco\n", "config/scripts.yaml": "s: main\n"})
+	b := h.commit(root, map[string]string{"config/automations.yaml": "BOX\ntwo\nthree\nfour\nfive\n", "config/scripts.yaml": "s: box\n"})
+	m := h.commit(root, map[string]string{"config/automations.yaml": "MAIN\ntwo\nthree\nfour\nfive\n", "config/scripts.yaml": "s: main\n"})
 	res := h.merge(b, m, merge.Options{BoxWins: lovelace})
 	if res.Kind != merge.Conflict || res.R != "" {
 		t.Fatalf("= %+v", res)
@@ -195,7 +195,7 @@ func TestSameHunkIsAConflict(t *testing.T) {
 	}
 	for _, c := range res.Conflicts {
 		if c.Type != "CONFLICT (contents)" || c.Message == "" {
-			t.Errorf("conflicto = %+v", c)
+			t.Errorf("conflict = %+v", c)
 		}
 	}
 }
@@ -210,18 +210,18 @@ func TestModifyDeleteIsAConflict(t *testing.T) {
 		t.Fatalf("= %+v", res)
 	}
 	if res.Conflicts[0].Type != "CONFLICT (modify/delete)" {
-		t.Errorf("tipo = %q", res.Conflicts[0].Type)
+		t.Errorf("type = %q", res.Conflicts[0].Type)
 	}
 }
 
 func TestFileDirectoryConflictNeverAutoResolves(t *testing.T) {
 	h := newH(t)
 	root := h.commit("", base)
-	b := h.commit(root, map[string]string{"config/.storage/lovelace_x": "archivo\n"})
+	b := h.commit(root, map[string]string{"config/.storage/lovelace_x": "file\n"})
 	m := h.commit(root, map[string]string{"config/.storage/lovelace_x/y": "dir\n"})
 	res := h.merge(b, m, merge.Options{BoxWins: lovelace})
 	if res.Kind != merge.Conflict {
-		t.Fatalf("un conflicto archivo/directorio debería frenar aunque sea push_only: %+v", res)
+		t.Fatalf("a file/directory conflict should stop even if push_only: %+v", res)
 	}
 }
 
@@ -236,7 +236,7 @@ func TestPushOnlyConflictResolvesToBox(t *testing.T) {
 	}
 	f := h.files(res.R)
 	if f["config/.storage/lovelace"] != "{\"v\": \"box\"}\n" || f["config/scripts.yaml"] != "s: box\n" || f["README.md"] != "# main\n" {
-		t.Errorf("árbol = %v", f)
+		t.Errorf("tree = %v", f)
 	}
 	if !slices.Equal(res.Overridden, []string{"config/.storage/lovelace"}) {
 		t.Errorf("overridden = %v", res.Overridden)
@@ -248,25 +248,25 @@ func TestPushOnlyChangeOnlyInMainIsDiscarded(t *testing.T) {
 	b := h.commit("", base)
 	m := h.commit(b, map[string]string{
 		"config/.storage/lovelace":   "{\"v\": \"main\"}\n",
-		"config/.storage/lovelace_2": "nuevo\n",
+		"config/.storage/lovelace_2": "new\n",
 		"config/scripts.yaml":        "s: main\n",
 	})
 	res := h.merge(b, m, merge.Options{BoxWins: lovelace})
 	if res.Kind != merge.FastForwardBox || res.R == m {
-		t.Fatalf("quería un commit nuevo sobre main, dio %+v", res)
+		t.Fatalf("wanted a new commit on top of main, got %+v", res)
 	}
 	if got := h.parents(res.R); !slices.Equal(got, []string{m}) {
-		t.Errorf("padres = %v", got)
+		t.Errorf("parents = %v", got)
 	}
 	f := h.files(res.R)
 	if f["config/.storage/lovelace"] != base["config/.storage/lovelace"] {
-		t.Errorf("lovelace = %q, quería la del box", f["config/.storage/lovelace"])
+		t.Errorf("lovelace = %q, want the box version", f["config/.storage/lovelace"])
 	}
 	if _, ok := f["config/.storage/lovelace_2"]; ok {
-		t.Error("lovelace_2 no existe en el box y no debería quedar")
+		t.Error("lovelace_2 does not exist in the box and should not remain")
 	}
 	if f["config/scripts.yaml"] != "s: main\n" {
-		t.Error("lo que no es push_only sí se toma de main")
+		t.Error("non-push_only paths should be taken from main")
 	}
 	if !slices.Equal(res.Overridden, []string{"config/.storage/lovelace", "config/.storage/lovelace_2"}) {
 		t.Errorf("overridden = %v", res.Overridden)
@@ -279,7 +279,7 @@ func TestPushOnlyDeletedInMainIsRestored(t *testing.T) {
 	m := h.commit(b, map[string]string{"config/.storage/lovelace": del})
 	res := h.merge(b, m, merge.Options{BoxWins: lovelace})
 	if got := h.files(res.R)["config/.storage/lovelace"]; got != base["config/.storage/lovelace"] {
-		t.Errorf("lovelace = %q, quería restaurada", got)
+		t.Errorf("lovelace = %q, want it restored", got)
 	}
 }
 
@@ -288,13 +288,13 @@ func TestUnrelatedHistoriesFail(t *testing.T) {
 	b := h.commit("", map[string]string{"a": "1\n"})
 	m := h.commit("", map[string]string{"b": "2\n"})
 	if _, err := merge.Merge(ctx, h.repo, b, m, merge.Options{}); !errors.Is(err, gitx.ErrUnrelated) {
-		t.Errorf("quería ErrUnrelated, dio %v", err)
+		t.Errorf("wanted ErrUnrelated, got %v", err)
 	}
 }
 
 func TestBoxIsRequired(t *testing.T) {
 	h := newH(t)
 	if _, err := merge.Merge(ctx, h.repo, "", h.commit("", base), merge.Options{}); err == nil {
-		t.Error("sin box debería fallar")
+		t.Error("should fail without box")
 	}
 }

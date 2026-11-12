@@ -7,9 +7,9 @@ import (
 	"syscall"
 )
 
-// sysStat devuelve ctime e inode. ctime cambia con cualquier escritura o
-// chmod, aunque alguien restaure el mtime a mano: por eso entra en la clave
-// de la cache.
+// sysStat returns ctime and inode. ctime changes on any write or chmod, even
+// if someone restores the mtime by hand: that is why it is part of the cache
+// key.
 func sysStat(fi fs.FileInfo) (ctimeNs int64, ino uint64) {
 	st, ok := fi.Sys().(*syscall.Stat_t)
 	if !ok {

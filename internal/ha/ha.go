@@ -1,6 +1,6 @@
-// Package ha abstrae lo que el motor necesita de Home Assistant (design.md
-// §10). En M4 solo está el chequeo de config; la implementación contra el
-// Supervisor (SUPERVISOR_TOKEN) llega en M7.
+// Package ha abstracts what the engine needs from Home Assistant (design.md
+// §10). In M4 there is only the config check; the implementation against the
+// Supervisor (SUPERVISOR_TOKEN) arrives in M7.
 package ha
 
 import (
@@ -8,21 +8,21 @@ import (
 	"regexp"
 )
 
-// CheckResult es el resultado de check_config.
+// CheckResult is the result of check_config.
 type CheckResult struct {
 	Valid bool
-	// Errors es el texto de errores que devuelve HA (vacío si es válida).
+	// Errors is the error text HA returns (empty if valid).
 	Errors string
-	// Warnings son los avisos de HA, uno por elemento. Ojo: una integración
-	// con config inválida es un warning, no un error (HA arranca igual y la
-	// desactiva), así que "válida" no alcanza para no romper nada.
+	// Warnings are HA's warnings, one per element. Note: an integration with
+	// an invalid config is a warning, not an error (HA starts anyway and
+	// disables it), so "valid" is not enough to guarantee nothing breaks.
 	Warnings []string
 }
 
 var lineRef = regexp.MustCompile(`,? line \d+`)
 
-// NewWarnings devuelve los warnings de after que no estaban en before,
-// comparando sin los números de línea (que se corren con cualquier edición).
+// NewWarnings returns the warnings in after that were not in before,
+// comparing without line numbers (which shift with any edit).
 func NewWarnings(before, after []string) []string {
 	seen := map[string]bool{}
 	for _, w := range before {
@@ -37,26 +37,26 @@ func NewWarnings(before, after []string) []string {
 	return out
 }
 
-// Checker valida la configuración que está en el disco vivo.
+// Checker validates the configuration on the live disk.
 type Checker interface {
 	CheckConfig(ctx context.Context) (CheckResult, error)
 }
 
-// Noop es un Checker que siempre da válido. Es el default del v0 cuando no
-// hay Supervisor.
+// Noop is a Checker that always reports valid. It is the v0 default when
+// there is no Supervisor.
 type Noop struct{}
 
-// CheckConfig implementa Checker.
+// CheckConfig implements Checker.
 func (Noop) CheckConfig(context.Context) (CheckResult, error) {
 	return CheckResult{Valid: true}, nil
 }
 
-// Reloader recarga la config YAML de Home Assistant sin reiniciar.
+// Reloader reloads Home Assistant's YAML config without restarting.
 type Reloader interface {
 	ReloadAll(ctx context.Context) error
 }
 
-// Tipos de evento (design.md §10). Coinciden con los estados del motor más
+// Event types (design.md §10). They match the engine states plus
 // sync_finished.
 const (
 	EventSyncFinished   = "sync_finished"
@@ -68,30 +68,30 @@ const (
 	EventError          = "error"
 )
 
-// Event es lo que el motor le cuenta a Home Assistant al terminar un ciclo.
+// Event is what the engine tells Home Assistant when a cycle finishes.
 type Event struct {
 	Type    string         `json:"type"`
 	Title   string         `json:"title"`
 	Message string         `json:"message"`
 	Data    map[string]any `json:"data,omitempty"`
-	// Persistent indica que además del evento conviene una notificación
-	// persistente (los estados que piden que el usuario haga algo).
+	// Persistent means a persistent notification is warranted on top of the
+	// event (the states that need the user to do something).
 	Persistent bool `json:"persistent"`
 }
 
-// Notifier publica eventos y notificaciones en Home Assistant.
+// Notifier publishes events and notifications in Home Assistant.
 type Notifier interface {
 	Notify(ctx context.Context, ev Event) error
 }
 
-// ReloadAll implementa Reloader sin hacer nada.
+// ReloadAll implements Reloader by doing nothing.
 func (Noop) ReloadAll(context.Context) error { return nil }
 
-// Notify implementa Notifier sin hacer nada.
+// Notify implements Notifier by doing nothing.
 func (Noop) Notify(context.Context, Event) error { return nil }
 
-// CheckerFunc adapta una función a Checker (tests y checker por comando).
+// CheckerFunc adapts a function to Checker (tests and command checker).
 type CheckerFunc func(ctx context.Context) (CheckResult, error)
 
-// CheckConfig implementa Checker.
+// CheckConfig implements Checker.
 func (f CheckerFunc) CheckConfig(ctx context.Context) (CheckResult, error) { return f(ctx) }

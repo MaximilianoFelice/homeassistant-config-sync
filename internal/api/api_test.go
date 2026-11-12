@@ -19,9 +19,9 @@ import (
 	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/testkit"
 )
 
-const tok = "token-de-prueba"
+const tok = "test-token"
 
-// fake es un SyncFunc controlable: cuenta llamadas y puede bloquearse.
+// fake is a controllable SyncFunc: it counts calls and can block.
 type fake struct {
 	calls   atomic.Int32
 	block   chan struct{}
@@ -48,7 +48,7 @@ func newServer(t *testing.T, f *fake, state string) (*Server, string) {
 		testkit.WriteFile(t, filepath.Join(dir, "state.json"), state)
 	}
 	cfg := config.Default()
-	cfg.Repository = "git@github.com:vos/mi-casa-ha.git"
+	cfg.Repository = "git@github.com:you/my-home-ha.git"
 	return New(Options{Config: cfg, StateDir: dir, Sync: f.sync, Token: tok}), dir
 }
 
@@ -77,7 +77,7 @@ func waitJob(t *testing.T, s *Server, id string) *Job {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	t.Fatalf("el job %s no terminó", id)
+	t.Fatalf("job %s did not finish", id)
 	return nil
 }
 
@@ -86,36 +86,36 @@ func TestAuth(t *testing.T) {
 	h := s.Handler()
 
 	if rec, _ := do(t, h, "GET", "/api/v1/status", "", false); rec.Code != http.StatusUnauthorized {
-		t.Errorf("sin token = %d", rec.Code)
+		t.Errorf("without token = %d", rec.Code)
 	}
 	req := httptest.NewRequest("GET", "/api/v1/status", nil)
-	req.Header.Set("Authorization", "Bearer otro")
+	req.Header.Set("Authorization", "Bearer other")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
-		t.Errorf("token equivocado = %d", rec.Code)
+		t.Errorf("wrong token = %d", rec.Code)
 	}
 	if rec, _ := do(t, h, "GET", "/api/v1/status", "", true); rec.Code != http.StatusOK {
-		t.Errorf("con token = %d", rec.Code)
+		t.Errorf("with token = %d", rec.Code)
 	}
 
-	// Ingress: el proxy del Supervisor no manda token.
+	// Ingress: the Supervisor proxy sends no token.
 	req = httptest.NewRequest("GET", "/api/v1/status", nil)
 	req.RemoteAddr = IngressIP + ":54321"
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
-		t.Errorf("desde ingress = %d", rec.Code)
+		t.Errorf("from ingress = %d", rec.Code)
 	}
 
-	// Sin token configurado, solo ingress.
+	// Without a configured token, only ingress.
 	s2 := New(Options{Config: config.Default(), StateDir: t.TempDir(), Sync: (&fake{}).sync})
 	req = httptest.NewRequest("GET", "/api/v1/status", nil)
 	req.Header.Set("Authorization", "Bearer ")
 	rec = httptest.NewRecorder()
 	s2.Handler().ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
-		t.Errorf("token vacío = %d", rec.Code)
+		t.Errorf("empty token = %d", rec.Code)
 	}
 }
 
@@ -129,7 +129,7 @@ func TestStatusHidesCacheAndShowsRunningJob(t *testing.T) {
 		t.Errorf("status = %d %v", rec.Code, out)
 	}
 	if _, ok := out["cache"]; ok {
-		t.Error("la cache de stat no sale por la API")
+		t.Error("the stat cache is not exposed through the API")
 	}
 
 	j, err := s.Trigger("test", engine.SyncOptions{})
@@ -162,14 +162,14 @@ func TestSyncJobLifecycle(t *testing.T) {
 		t.Errorf("job = %+v", j)
 	}
 	if so := f.lastOpt.Load().(engine.SyncOptions); !so.AcceptBootstrap {
-		t.Errorf("no llegó accept_bootstrap: %+v", so)
+		t.Errorf("accept_bootstrap did not arrive: %+v", so)
 	}
 	rec, out = do(t, h, "GET", "/api/v1/jobs/"+id, "", true)
 	if rec.Code != 200 || out["status"] != JobDone {
 		t.Errorf("GET job = %d %v", rec.Code, out)
 	}
 	if rec, _ := do(t, h, "GET", "/api/v1/jobs/nope", "", true); rec.Code != http.StatusNotFound {
-		t.Errorf("job inexistente = %d", rec.Code)
+		t.Errorf("nonexistent job = %d", rec.Code)
 	}
 }
 
@@ -178,11 +178,11 @@ func TestSyncWithoutBodyAndBadBody(t *testing.T) {
 	h := s.Handler()
 	rec, out := do(t, h, "POST", "/api/v1/sync", "", true)
 	if rec.Code != http.StatusAccepted {
-		t.Fatalf("sin body = %d", rec.Code)
+		t.Fatalf("without body = %d", rec.Code)
 	}
 	waitJob(t, s, out["job_id"].(string))
 	if rec, _ := do(t, h, "POST", "/api/v1/sync", `{"force": true}`, true); rec.Code != http.StatusBadRequest {
-		t.Errorf("campo desconocido = %d", rec.Code)
+		t.Errorf("unknown field = %d", rec.Code)
 	}
 	if rec, _ := do(t, h, "GET", "/api/v1/sync", "", true); rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("GET /sync = %d", rec.Code)
@@ -197,10 +197,10 @@ func TestOnlyOneJobAtATime(t *testing.T) {
 	id := out["job_id"].(string)
 
 	if rec, out := do(t, h, "POST", "/api/v1/sync", "", true); rec.Code != http.StatusConflict || out["job"] == nil {
-		t.Errorf("segundo sync = %d %v", rec.Code, out)
+		t.Errorf("second sync = %d %v", rec.Code, out)
 	}
 	if rec, _ := do(t, h, "GET", "/api/v1/pending", "", true); rec.Code != http.StatusConflict {
-		t.Errorf("pending durante un sync = %d", rec.Code)
+		t.Errorf("pending during a sync = %d", rec.Code)
 	}
 	if _, err := s.Trigger("schedule", engine.SyncOptions{}); !errors.Is(err, ErrBusy) {
 		t.Errorf("trigger = %v", err)
@@ -213,18 +213,18 @@ func TestOnlyOneJobAtATime(t *testing.T) {
 }
 
 func TestFailedJob(t *testing.T) {
-	f := &fake{err: errors.New("se cayó la red")}
+	f := &fake{err: errors.New("the network is down")}
 	var seen atomic.Value
 	s, _ := newServer(t, f, "")
 	s.opts.OnJob = func(j *Job) { seen.Store(j.Status) }
 	j, _ := s.Trigger("test", engine.SyncOptions{})
 	done := waitJob(t, s, j.ID)
-	if done.Status != JobFailed || done.Error != "se cayó la red" {
+	if done.Status != JobFailed || done.Error != "the network is down" {
 		t.Errorf("job = %+v", done)
 	}
 	s.Wait()
 	if seen.Load() != JobFailed {
-		t.Errorf("OnJob vio %v", seen.Load())
+		t.Errorf("OnJob saw %v", seen.Load())
 	}
 }
 
@@ -236,32 +236,32 @@ func TestPendingIsADryRun(t *testing.T) {
 		t.Errorf("pending = %d %v", rec.Code, out)
 	}
 	if so := f.lastOpt.Load().(engine.SyncOptions); !so.DryRun {
-		t.Error("pending tiene que ser dry-run")
+		t.Error("pending must be a dry-run")
 	}
 }
 
 func TestConflictEndpoint(t *testing.T) {
 	s, _ := newServer(t, &fake{}, `{"state": "conflict", "conflict_paths": ["config/automations.yaml"], "box_head": "b1", "main_head": "m1"}`)
 	_, out := do(t, s.Handler(), "GET", "/api/v1/conflict", "", true)
-	if out["conflict"] != true || out["compare_url"] != "https://github.com/vos/mi-casa-ha/compare/main...box" {
+	if out["conflict"] != true || out["compare_url"] != "https://github.com/you/my-home-ha/compare/main...box" {
 		t.Errorf("conflict = %v", out)
 	}
 	s2, _ := newServer(t, &fake{}, `{"state": "idle"}`)
 	if _, out := do(t, s2.Handler(), "GET", "/api/v1/conflict", "", true); out["conflict"] != false || out["paths"] != nil {
-		t.Errorf("sin conflicto = %v", out)
+		t.Errorf("without conflict = %v", out)
 	}
 }
 
 func TestCompareURL(t *testing.T) {
 	for repo, want := range map[string]string{
-		"git@github.com:vos/casa.git":       "https://github.com/vos/casa/compare/main...box",
-		"git@github.com:vos/casa":           "https://github.com/vos/casa/compare/main...box",
-		"ssh://git@github.com/vos/casa.git": "https://github.com/vos/casa/compare/main...box",
-		"git@gitea.local:vos/casa.git":      "",
+		"git@github.com:you/home.git":       "https://github.com/you/home/compare/main...box",
+		"git@github.com:you/home":           "https://github.com/you/home/compare/main...box",
+		"ssh://git@github.com/you/home.git": "https://github.com/you/home/compare/main...box",
+		"git@gitea.local:you/home.git":      "",
 		"file:///tmp/origin.git":            "",
 	} {
 		if got := CompareURL(repo, "main", "box"); got != want {
-			t.Errorf("CompareURL(%q) = %q, quería %q", repo, got, want)
+			t.Errorf("CompareURL(%q) = %q, want %q", repo, got, want)
 		}
 	}
 }
@@ -269,7 +269,7 @@ func TestCompareURL(t *testing.T) {
 func TestDeployKeyEndpoint(t *testing.T) {
 	s, dir := newServer(t, &fake{}, "")
 	if rec, _ := do(t, s.Handler(), "GET", "/api/v1/deploy-key", "", true); rec.Code != http.StatusNotFound {
-		t.Errorf("sin init = %d", rec.Code)
+		t.Errorf("without init = %d", rec.Code)
 	}
 	testkit.WriteFile(t, filepath.Join(dir, "ssh", "id_ed25519.pub"), "ssh-ed25519 AAAA homeassistant-config-sync\n")
 	if _, out := do(t, s.Handler(), "GET", "/api/v1/deploy-key", "", true); out["public_key"] != "ssh-ed25519 AAAA homeassistant-config-sync" {
@@ -289,10 +289,10 @@ func TestSchedulerTriggersAndSkipsWhenBusy(t *testing.T) {
 	cancel()
 	s.Wait()
 	if f.calls.Load() < 3 {
-		t.Errorf("el scheduler disparó %d veces", f.calls.Load())
+		t.Errorf("the scheduler fired %d times", f.calls.Load())
 	}
 
-	// Con un sync bloqueado, los ticks se saltean.
+	// With a blocked sync, ticks are skipped.
 	f2 := &fake{block: make(chan struct{})}
 	s2, _ := newServer(t, f2, "")
 	var skips atomic.Int32
@@ -312,9 +312,9 @@ func TestSchedulerTriggersAndSkipsWhenBusy(t *testing.T) {
 func TestSchedulerDisabledWithZeroInterval(t *testing.T) {
 	f := &fake{}
 	s, _ := newServer(t, f, "")
-	RunScheduler(context.Background(), s, 0, nil) // vuelve enseguida
+	RunScheduler(context.Background(), s, 0, nil) // returns right away
 	if f.calls.Load() != 0 {
-		t.Error("interval 0 = solo manual")
+		t.Error("interval 0 = manual only")
 	}
 }
 
@@ -322,7 +322,7 @@ func TestReadCommands(t *testing.T) {
 	f := &fake{}
 	s, _ := newServer(t, f, "")
 	var unknown []string
-	// HA manda el input de hassio.addon_stdin como JSON: "sync" con comillas.
+	// HA sends the hassio.addon_stdin input as JSON: "sync" with quotes.
 	ReadCommands(context.Background(), strings.NewReader("\"sync\"\n\nreboot\n"), s, func(c string) { unknown = append(unknown, c) }, nil)
 	s.Wait()
 	if f.calls.Load() != 1 || len(unknown) != 1 || unknown[0] != "reboot" {
@@ -330,8 +330,8 @@ func TestReadCommands(t *testing.T) {
 	}
 }
 
-// TestRealEngineThroughAPI levanta la API sobre un motor real (remoto
-// file:// local) y hace un sync de punta a punta por HTTP.
+// TestRealEngineThroughAPI starts the API on top of a real engine (local
+// file:// remote) and runs an end-to-end sync over HTTP.
 func TestRealEngineThroughAPI(t *testing.T) {
 	ctx := context.Background()
 	root := t.TempDir()
@@ -381,6 +381,6 @@ func TestRealEngineThroughAPI(t *testing.T) {
 		t.Errorf("main/automations = %q", got)
 	}
 	if _, err := os.Stat(filepath.Join(stateDir, "state.json")); err != nil {
-		t.Error("el job tiene que persistir el estado")
+		t.Error("the job must persist the state")
 	}
 }

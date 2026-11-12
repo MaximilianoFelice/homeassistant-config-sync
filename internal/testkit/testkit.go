@@ -1,6 +1,6 @@
-// Package testkit tiene helpers para tests autocontenidos: todo vive en
-// t.TempDir(), los remotos son repos bare locales (file://) y git corre con
-// el entorno aislado de gitx (sin la config, el SSH ni la red del usuario).
+// Package testkit has helpers for self-contained tests: everything lives in
+// t.TempDir(), remotes are local bare repos (file://) and git runs with
+// gitx's isolated environment (none of the user's config, SSH or network).
 package testkit
 
 import (
@@ -15,13 +15,13 @@ import (
 	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/gitx"
 )
 
-// WriteFile crea los directorios padre y escribe el archivo.
+// WriteFile creates the parent directories and writes the file.
 func WriteFile(t testing.TB, path, content string) {
 	t.Helper()
 	WriteFileMode(t, path, content, 0o644)
 }
 
-// WriteFileMode es WriteFile con permisos explícitos.
+// WriteFileMode is WriteFile with explicit permissions.
 func WriteFileMode(t testing.TB, path, content string, perm os.FileMode) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -35,7 +35,7 @@ func WriteFileMode(t testing.TB, path, content string, perm os.FileMode) {
 	}
 }
 
-// Remove borra un archivo o directorio.
+// Remove deletes a file or directory.
 func Remove(t testing.TB, path string) {
 	t.Helper()
 	if err := os.RemoveAll(path); err != nil {
@@ -43,8 +43,8 @@ func Remove(t testing.TB, path string) {
 	}
 }
 
-// NewBareRepo crea un repo bare en un directorio temporal, con file://
-// habilitado.
+// NewBareRepo creates a bare repo in a temporary directory, with file://
+// enabled.
 func NewBareRepo(t testing.TB) *gitx.Repo {
 	t.Helper()
 	r, err := gitx.InitBare(context.Background(), filepath.Join(t.TempDir(), "repo.git"), gitx.Options{AllowFile: true})
@@ -54,8 +54,8 @@ func NewBareRepo(t testing.TB) *gitx.Repo {
 	return r
 }
 
-// Tree devuelve el contenido de un ref como mapa path → contenido. Un ref
-// inexistente da un mapa vacío.
+// Tree returns a ref's content as a path → content map. A missing ref
+// gives an empty map.
 func Tree(t testing.TB, r *gitx.Repo, ref string) map[string]string {
 	t.Helper()
 	ctx := context.Background()
@@ -81,12 +81,12 @@ func Tree(t testing.TB, r *gitx.Repo, ref string) map[string]string {
 	return out
 }
 
-// Del marca un borrado en Commit.
-const Del = "\x00borrar"
+// Del marks a deletion in Commit.
+const Del = "\x00delete"
 
-// Commit crea un commit sobre parent ("" = commit raíz) aplicando changes
-// (path → contenido, o Del para borrar). Un contenido con el prefijo "x:" se
-// guarda sin el prefijo y con modo ejecutable.
+// Commit creates a commit on top of parent ("" = root commit) applying
+// changes (path → content, or Del to delete). Content with the "x:" prefix
+// is stored without the prefix and with executable mode.
 func Commit(t testing.TB, r *gitx.Repo, parent string, changes map[string]string) string {
 	t.Helper()
 	ctx := context.Background()
@@ -132,8 +132,8 @@ func Commit(t testing.TB, r *gitx.Repo, parent string, changes map[string]string
 
 var commitSeq int64
 
-// Disk devuelve los archivos regulares bajo root como mapa path relativo
-// ('/') → contenido. Los symlinks y directorios no aparecen.
+// Disk returns the regular files under root as a relative path ('/') →
+// content map. Symlinks and directories are not included.
 func Disk(t testing.TB, root string) map[string]string {
 	t.Helper()
 	out := map[string]string{}
@@ -158,7 +158,7 @@ func Disk(t testing.TB, root string) map[string]string {
 	return out
 }
 
-// Modes devuelve los modos de git de un ref como mapa path → modo.
+// Modes returns a ref's git modes as a path → mode map.
 func Modes(t testing.TB, r *gitx.Repo, ref string) map[string]string {
 	t.Helper()
 	ctx := context.Background()

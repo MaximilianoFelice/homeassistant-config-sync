@@ -1,9 +1,9 @@
-// Package gitx envuelve el git CLI para el motor: siempre sobre un repo bare,
-// siempre con un entorno aislado (sin la config global ni del sistema, sin
-// hooks, sin credential helpers, sin agente SSH) y con los protocolos
-// restringidos a SSH (design.md §9). En tests se habilita además file://.
+// Package gitx wraps the git CLI for the engine: always on a bare repo,
+// always with an isolated environment (no global or system config, no
+// hooks, no credential helpers, no SSH agent) and with protocols
+// restricted to SSH (design.md §9). Tests also enable file://.
 //
-// Todo se hace con plumbing: el motor nunca tiene un working tree.
+// Everything is done with plumbing: the engine never has a working tree.
 package gitx
 
 import (
@@ -20,38 +20,38 @@ import (
 	"time"
 )
 
-// ZeroOID es el OID que git usa para "no existe" (SHA-1).
+// ZeroOID is the OID git uses for "does not exist" (SHA-1).
 const ZeroOID = "0000000000000000000000000000000000000000"
 
-// EngineIdent es la identidad del motor: committer de todos sus commits y
-// autor de los merges.
+// EngineIdent is the engine's identity: committer of all its commits and
+// author of merges.
 const EngineIdent = "homeassistant-config-sync <noreply@homeassistant-config-sync.invalid>"
 
-// Options configura cómo se invoca git.
+// Options configures how git is invoked.
 type Options struct {
-	// AllowFile habilita remotos file:// y paths locales (v0 y tests).
+	// AllowFile enables file:// remotes and local paths (v0 and tests).
 	AllowFile bool
-	// SSHKey es la clave privada de la deploy key. Vacío = sin SSH.
+	// SSHKey is the deploy key's private key. Empty = no SSH.
 	SSHKey string
-	// KnownHosts es el archivo known_hosts fijo.
+	// KnownHosts is the fixed known_hosts file.
 	KnownHosts string
-	// GitBinary permite elegir el ejecutable de git. Vacío = "git" del PATH.
+	// GitBinary selects the git executable. Empty = "git" from PATH.
 	GitBinary string
 }
 
-// Repo es un repo bare manejado por el motor.
+// Repo is a bare repo managed by the engine.
 type Repo struct {
 	dir  string
 	opts Options
 	git  string
 }
 
-// Error es un fallo de un comando git, con su stderr.
+// Error is a failed git command, with its stderr.
 type Error struct {
 	Args   []string
 	Stderr string
-	// Stdout se conserva porque algunos comandos (merge-tree) usan un exit
-	// distinto de 0 con salida válida.
+	// Stdout is kept because some commands (merge-tree) exit non-zero
+	// with valid output.
 	Stdout []byte
 	Err    error
 }
@@ -62,20 +62,20 @@ func (e *Error) Error() string {
 
 func (e *Error) Unwrap() error { return e.Err }
 
-// InitBare crea (o reabre) un repo bare SHA-1 en dir.
+// InitBare creates (or reopens) a SHA-1 bare repo in dir.
 func InitBare(ctx context.Context, dir string, opts Options) (*Repo, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
 	r := Open(dir, opts)
-	// GIT_DIR ya apunta a dir (ver Env), así que init no lleva path.
+	// GIT_DIR already points to dir (see Env), so init takes no path.
 	if _, err := r.run(ctx, nil, "init", "--quiet", "--bare", "--object-format=sha1", "--initial-branch=main"); err != nil {
 		return nil, err
 	}
 	return r, nil
 }
 
-// Open abre un repo bare existente sin chequear nada.
+// Open opens an existing bare repo without checking anything.
 func Open(dir string, opts Options) *Repo {
 	g := opts.GitBinary
 	if g == "" {
@@ -84,16 +84,16 @@ func Open(dir string, opts Options) *Repo {
 	return &Repo{dir: dir, opts: opts, git: g}
 }
 
-// Dir devuelve el directorio del repo.
+// Dir returns the repo directory.
 func (r *Repo) Dir() string { return r.dir }
 
-// Env devuelve el entorno con el que corre git: se arma de cero, no se
-// hereda. En particular no pasan SSH_AUTH_SOCK, GIT_* ni la config del
-// usuario.
+// Env returns the environment git runs with: built from scratch, not
+// inherited. In particular SSH_AUTH_SOCK, GIT_* and the user's config do
+// not pass through.
 func (r *Repo) Env() []string {
 	env := []string{
 		"PATH=" + os.Getenv("PATH"),
-		"HOME=" + r.dir, // nada de ~/.gitconfig ni ~/.ssh del usuario
+		"HOME=" + r.dir, // no user ~/.gitconfig or ~/.ssh
 		"LC_ALL=C",
 		"GIT_CONFIG_NOSYSTEM=1",
 		"GIT_CONFIG_GLOBAL=" + os.DevNull,
@@ -121,7 +121,7 @@ func (r *Repo) Env() []string {
 	return env
 }
 
-// configArgs son los -c que van antes de cada subcomando.
+// configArgs are the -c flags that go before every subcommand.
 func (r *Repo) configArgs() []string {
 	args := []string{
 		"-c", "protocol.allow=never",
@@ -156,20 +156,20 @@ func (r *Repo) runEnv(ctx context.Context, extraEnv []string, stdin io.Reader, a
 	return stdout.Bytes(), nil
 }
 
-// Version devuelve la versión de git como (major, minor).
+// Version returns the git version as (major, minor).
 func (r *Repo) Version(ctx context.Context) (major, minor int, err error) {
 	out, err := r.run(ctx, nil, "version")
 	if err != nil {
 		return 0, 0, err
 	}
-	// "git version 2.53.0" (puede traer sufijos como ".windows.1")
+	// "git version 2.53.0" (may carry suffixes like ".windows.1")
 	f := strings.Fields(string(out))
 	if len(f) < 3 {
-		return 0, 0, fmt.Errorf("salida inesperada de git version: %q", out)
+		return 0, 0, fmt.Errorf("unexpected git version output: %q", out)
 	}
 	parts := strings.SplitN(f[2], ".", 3)
 	if len(parts) < 2 {
-		return 0, 0, fmt.Errorf("versión de git inesperada: %q", f[2])
+		return 0, 0, fmt.Errorf("unexpected git version: %q", f[2])
 	}
 	if major, err = strconv.Atoi(parts[0]); err != nil {
 		return 0, 0, err
@@ -180,19 +180,19 @@ func (r *Repo) Version(ctx context.Context) (major, minor int, err error) {
 	return major, minor, nil
 }
 
-// RequireVersion falla si git es más viejo que 2.38 (merge-tree --write-tree).
+// RequireVersion fails if git is older than 2.38 (merge-tree --write-tree).
 func (r *Repo) RequireVersion(ctx context.Context) error {
 	major, minor, err := r.Version(ctx)
 	if err != nil {
 		return err
 	}
 	if major < 2 || (major == 2 && minor < 38) {
-		return fmt.Errorf("hace falta git >= 2.38, hay %d.%d", major, minor)
+		return fmt.Errorf("git >= 2.38 is required, found %d.%d", major, minor)
 	}
 	return nil
 }
 
-// ResolveRef devuelve el OID de un ref, o "" si no existe.
+// ResolveRef returns a ref's OID, or "" if it does not exist.
 func (r *Repo) ResolveRef(ctx context.Context, ref string) (string, error) {
 	out, err := r.run(ctx, nil, "rev-parse", "--verify", "--quiet", "--end-of-options", ref+"^{commit}")
 	if err != nil {
@@ -206,7 +206,7 @@ func (r *Repo) ResolveRef(ctx context.Context, ref string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// TreeOf devuelve el árbol de un commit.
+// TreeOf returns a commit's tree.
 func (r *Repo) TreeOf(ctx context.Context, commit string) (string, error) {
 	out, err := r.run(ctx, nil, "rev-parse", "--verify", "--end-of-options", commit+"^{tree}")
 	if err != nil {
@@ -215,15 +215,15 @@ func (r *Repo) TreeOf(ctx context.Context, commit string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// TreeEntry es una entrada (blob) de un árbol, recorrido recursivamente.
+// TreeEntry is a (blob) entry of a tree, walked recursively.
 type TreeEntry struct {
 	Mode string // "100644", "100755", "120000"…
 	OID  string
 	Path string
 }
 
-// LsTree lista recursivamente los blobs de un tree-ish. Con treeish vacío
-// devuelve nada (árbol vacío).
+// LsTree recursively lists the blobs of a tree-ish. An empty treeish
+// returns nothing (empty tree).
 func (r *Repo) LsTree(ctx context.Context, treeish string) ([]TreeEntry, error) {
 	if treeish == "" {
 		return nil, nil
@@ -240,21 +240,21 @@ func (r *Repo) LsTree(ctx context.Context, treeish string) ([]TreeEntry, error) 
 		// "<mode> SP <type> SP <oid> TAB <path>"
 		meta, p, ok := bytes.Cut(rec, []byte{'\t'})
 		if !ok {
-			return nil, fmt.Errorf("ls-tree: registro inesperado %q", rec)
+			return nil, fmt.Errorf("ls-tree: unexpected record %q", rec)
 		}
 		f := strings.Fields(string(meta))
 		if len(f) != 3 {
-			return nil, fmt.Errorf("ls-tree: registro inesperado %q", rec)
+			return nil, fmt.Errorf("ls-tree: unexpected record %q", rec)
 		}
 		if f[1] != "blob" {
-			continue // submódulos (commit) no se gestionan
+			continue // submodules (commit) are not managed
 		}
 		entries = append(entries, TreeEntry{Mode: f[0], OID: f[2], Path: string(p)})
 	}
 	return entries, nil
 }
 
-// WriteBlob guarda contenido como blob, sin filtros, y devuelve su OID.
+// WriteBlob stores content as a blob, without filters, and returns its OID.
 func (r *Repo) WriteBlob(ctx context.Context, content []byte) (string, error) {
 	out, err := r.run(ctx, bytes.NewReader(content), "hash-object", "-w", "--stdin")
 	if err != nil {
@@ -263,12 +263,12 @@ func (r *Repo) WriteBlob(ctx context.Context, content []byte) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// ReadBlob devuelve el contenido de un blob.
+// ReadBlob returns a blob's content.
 func (r *Repo) ReadBlob(ctx context.Context, oid string) ([]byte, error) {
 	return r.run(ctx, nil, "cat-file", "blob", oid)
 }
 
-// HasObject dice si el objeto existe en el repo.
+// HasObject reports whether the object exists in the repo.
 func (r *Repo) HasObject(ctx context.Context, oid string) (bool, error) {
 	_, err := r.run(ctx, nil, "cat-file", "-e", oid)
 	if err == nil {
@@ -282,15 +282,15 @@ func (r *Repo) HasObject(ctx context.Context, oid string) (bool, error) {
 	return false, err
 }
 
-// IndexUpdate es un cambio a aplicar sobre un árbol. OID vacío = borrar.
+// IndexUpdate is a change to apply to a tree. Empty OID = delete.
 type IndexUpdate struct {
 	Path string
-	Mode string // "100644" o "100755"; se ignora si se borra
+	Mode string // "100644" or "100755"; ignored on delete
 	OID  string
 }
 
-// BuildTree parte del árbol base (o del árbol vacío si base es "") y aplica
-// los cambios con un índice temporal. Devuelve el OID del árbol nuevo.
+// BuildTree starts from the base tree (or the empty tree if base is "") and
+// applies the changes with a temporary index. Returns the new tree's OID.
 func (r *Repo) BuildTree(ctx context.Context, base string, updates []IndexUpdate) (string, error) {
 	tmp, err := os.MkdirTemp(r.dir, "index-")
 	if err != nil {
@@ -305,8 +305,8 @@ func (r *Repo) BuildTree(ctx context.Context, base string, updates []IndexUpdate
 		}
 	}
 
-	// Primero los borrados y después los altas, para que un path que pasa de
-	// archivo a directorio (o al revés) no choque consigo mismo.
+	// Deletions first, then additions, so a path that turns from file into
+	// directory (or the other way) does not collide with itself.
 	var buf bytes.Buffer
 	for _, u := range updates {
 		if u.OID == "" {
@@ -330,18 +330,18 @@ func (r *Repo) BuildTree(ctx context.Context, base string, updates []IndexUpdate
 	return strings.TrimSpace(string(out)), nil
 }
 
-// Ident es un autor o committer de git.
+// Ident is a git author or committer.
 type Ident struct {
 	Name  string
 	Email string
 	When  time.Time
 }
 
-// ParseIdent parsea "Nombre <email>".
+// ParseIdent parses "Name <email>".
 func ParseIdent(s string, when time.Time) (Ident, error) {
 	name, rest, ok := strings.Cut(s, " <")
 	if !ok || !strings.HasSuffix(rest, ">") {
-		return Ident{}, fmt.Errorf("identidad inválida %q: esperaba 'Nombre <email>'", s)
+		return Ident{}, fmt.Errorf("invalid identity %q: expected 'Name <email>'", s)
 	}
 	return Ident{Name: name, Email: strings.TrimSuffix(rest, ">"), When: when}, nil
 }
@@ -350,7 +350,7 @@ func (id Ident) date() string {
 	return fmt.Sprintf("%d %s", id.When.Unix(), id.When.Format("-0700"))
 }
 
-// CommitTree crea un commit con el árbol y los padres dados.
+// CommitTree creates a commit with the given tree and parents.
 func (r *Repo) CommitTree(ctx context.Context, tree string, parents []string, msg string, author, committer Ident) (string, error) {
 	args := []string{"commit-tree", tree}
 	for _, p := range parents {
@@ -371,11 +371,11 @@ func (r *Repo) CommitTree(ctx context.Context, tree string, parents []string, ms
 	return strings.TrimSpace(string(out)), nil
 }
 
-// ErrRefMoved indica que un ref no tenía el valor esperado (compare-and-swap).
-var ErrRefMoved = errors.New("el ref cambió mientras tanto")
+// ErrRefMoved means a ref did not have the expected value (compare-and-swap).
+var ErrRefMoved = errors.New("the ref changed in the meantime")
 
-// UpdateRef mueve ref a newOID solo si hoy vale oldOID ("" = no tiene que
-// existir).
+// UpdateRef moves ref to newOID only if it currently equals oldOID ("" = it
+// must not exist).
 func (r *Repo) UpdateRef(ctx context.Context, ref, newOID, oldOID string) error {
 	if oldOID == "" {
 		oldOID = ZeroOID
@@ -384,8 +384,8 @@ func (r *Repo) UpdateRef(ctx context.Context, ref, newOID, oldOID string) error 
 	if err == nil {
 		return nil
 	}
-	// No se parsea el stderr (cambia entre versiones): si el ref ya no vale
-	// lo esperado, fue un compare-and-swap perdido.
+	// stderr is not parsed (it changes between versions): if the ref no
+	// longer has the expected value, a compare-and-swap was lost.
 	cur, rerr := r.ResolveRef(ctx, ref)
 	if rerr == nil {
 		if cur == "" {
@@ -398,7 +398,7 @@ func (r *Repo) UpdateRef(ctx context.Context, ref, newOID, oldOID string) error 
 	return err
 }
 
-// Fetch trae refspecs desde un remoto (URL directa, sin remotes configurados).
+// Fetch fetches refspecs from a remote (direct URL, no configured remotes).
 func (r *Repo) Fetch(ctx context.Context, url string, refspecs ...string) error {
 	args := append([]string{"fetch", "--quiet", "--no-tags", "--prune", "--end-of-options", url}, refspecs...)
 	_, err := r.run(ctx, nil, args...)

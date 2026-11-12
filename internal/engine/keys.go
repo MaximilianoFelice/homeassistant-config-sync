@@ -14,19 +14,19 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// githubKnownHosts son las host keys que GitHub publica en
-// https://api.github.com/meta (ssh_keys), verificadas el 2026-11-11.
+// githubKnownHosts are the host keys GitHub publishes at
+// https://api.github.com/meta (ssh_keys), verified on 2026-11-11.
 var githubKnownHosts = []string{
 	"github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl",
 	"github.com ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBEmKSENjQEezOmxkZMy7opKgwFB9nkt5YRrYMjNuG5N87uRgg6CLrbo5wAdT/y6v0mKV0U2w0WZ2YB/++Tpockg=",
 	"github.com ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCj7ndNxQowgcQnjshcLrqPEiiphnt+VTTvDP6mHBL9j1aNUkY4Ue1gvwnGLVlOhGeYrnZaMgRK6+PKCUXaDbC7qtbW8gIkhL7aGCsOr/C56SJMy/BCZfxd1nWzAOxSDPgVsmerOBYfNqltV9/hWCqBywINIR+5dIg6JTJ72pcEpEjcYgXkE2YEFXV1JHnsKgbLWNlhScqb2UmyRkQyytRLtL+38TGxkxCflmO+5Z8CSSNY7GidjMIZ7Q4zMjA2n1nGrlTDkzwDCsw+wqFPGQA179cnfGWOWRVruj16z6XyvxvjJwbz0wQZ75XK5tKSb7FNyeIEs4TT4jk+S4dhPeAUC5y+bDYirYgM4GC7uEnztnZyaVWQ7B381AK4Qdrwt51ZqExKbQpTUNn+EjqoTwvqNj4kqx5QUCI0ThS/YkOxJCXmPUWZbhjpCg56i+2aB6CmK2JGhn57K5mj0MNdBXA4/WnwH6XoPWJzK5Nyu2zB3nAZp+S5hpQs+p1vN1/wsjk=",
 }
 
-// keyComment identifica la deploy key en la lista de GitHub.
+// keyComment identifies the deploy key in GitHub's list.
 const keyComment = "homeassistant-config-sync"
 
-// ensureDeployKey genera el par ed25519 si no existe y devuelve la clave
-// pública en formato authorized_keys.
+// ensureDeployKey generates the ed25519 key pair if it does not exist and
+// returns the public key in authorized_keys format.
 func ensureDeployKey(dir string) (pub string, created bool, err error) {
 	privPath := filepath.Join(dir, "id_ed25519")
 	pubPath := privPath + ".pub"
@@ -63,15 +63,15 @@ func ensureDeployKey(dir string) (pub string, created bool, err error) {
 	return pub, true, nil
 }
 
-// writeKnownHosts escribe el known_hosts fijo: GitHub más los extra de la
-// config. Se reescribe en cada init para seguir a la config.
+// writeKnownHosts writes the pinned known_hosts: GitHub plus the extra
+// entries from the config. It is rewritten on every init to follow the config.
 func writeKnownHosts(path string, extra []string) error {
 	lines := append(append([]string{}, githubKnownHosts...), extra...)
 	return os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
 }
 
-// ensureAPIToken genera el token de la API HTTP (32 bytes al azar, en hex)
-// si no existe.
+// ensureAPIToken generates the HTTP API token (32 random bytes, hex encoded)
+// if it does not exist.
 func ensureAPIToken(path string) error {
 	if _, err := os.Stat(path); err == nil {
 		return nil
@@ -85,7 +85,7 @@ func ensureAPIToken(path string) error {
 	return os.WriteFile(path, []byte(hex.EncodeToString(b)+"\n"), 0o600)
 }
 
-// APIToken devuelve el token de la API HTTP de un state dir inicializado.
+// APIToken returns the HTTP API token of an initialized state dir.
 func APIToken(stateDir string) (string, error) {
 	b, err := os.ReadFile(filepath.Join(stateDir, "api_token"))
 	if err != nil {
@@ -94,7 +94,7 @@ func APIToken(stateDir string) (string, error) {
 	return strings.TrimSpace(string(b)), nil
 }
 
-// DeployKey devuelve la clave pública de un state dir ya inicializado.
+// DeployKey returns the public key of an already initialized state dir.
 func DeployKey(stateDir string) (string, error) {
 	b, err := os.ReadFile(filepath.Join(stateDir, "ssh", "id_ed25519.pub"))
 	if err != nil {

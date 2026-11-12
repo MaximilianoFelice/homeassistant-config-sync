@@ -10,16 +10,16 @@ import (
 	"strings"
 )
 
-// CommandChecker valida la config corriendo un comando de shell. Si la
-// salida trae el JSON de `check_config --json` de Home Assistant, se usa ese
-// resultado (errores y warnings); si no, exit 0 es válida y cualquier otro
-// exit es inválida con la salida como errores. Sirve en el v0 para correr el
-// check_config de la imagen de HA con Docker (scripts/ha-check.sh).
+// CommandChecker validates the config by running a shell command. If the
+// output contains the JSON from Home Assistant's `check_config --json`, that
+// result is used (errors and warnings); otherwise exit 0 is valid and any
+// other exit is invalid with the output as errors. In v0 it is used to run
+// the check_config of the HA image with Docker (scripts/ha-check.sh).
 type CommandChecker struct {
 	Command string
 }
 
-// CheckConfig implementa Checker.
+// CheckConfig implements Checker.
 func (c CommandChecker) CheckConfig(ctx context.Context) (CheckResult, error) {
 	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", c.Command)
 	var stdout, stderr bytes.Buffer
@@ -40,10 +40,10 @@ func (c CommandChecker) CheckConfig(ctx context.Context) (CheckResult, error) {
 	return CheckResult{Valid: false, Errors: out}, nil
 }
 
-// parseCheckJSON interpreta la salida de `check_config --json`:
+// parseCheckJSON parses the output of `check_config --json`:
 //
 //	{"total_errors": n, "total_warnings": m,
-//	 "errors": {"dominio": ["mensaje", {config}…]}, "warnings": {…}}
+//	 "errors": {"domain": ["message", {config}…]}, "warnings": {…}}
 func parseCheckJSON(out []byte) (CheckResult, bool) {
 	i := bytes.IndexByte(out, '{')
 	if i < 0 {
@@ -65,8 +65,8 @@ func parseCheckJSON(out []byte) (CheckResult, bool) {
 	return res, true
 }
 
-// messages saca los strings de cada dominio (los objetos son la config que
-// HA adjunta, no mensajes).
+// messages extracts the strings of each domain (the objects are the config
+// HA attaches, not messages).
 func messages(m map[string][]json.RawMessage) []string {
 	domains := make([]string, 0, len(m))
 	for d := range m {

@@ -1,6 +1,6 @@
-// Package api es la API HTTP chica del motor (design.md §12): estado,
-// cambios pendientes, conflicto, "sync now" y deploy key. Está pensada para
-// la UI por ingress (v2) y la integración HACS (v3).
+// Package api is the engine's small HTTP API (design.md §12): state, pending
+// changes, conflict, "sync now" and deploy key. It is meant for the ingress
+// UI (v2) and the HACS integration (v3).
 package api
 
 import (
@@ -21,29 +21,29 @@ import (
 	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/engine"
 )
 
-// IngressIP es la IP desde la que el Supervisor hace proxy de ingress.
+// IngressIP is the IP the Supervisor proxies ingress from.
 const IngressIP = "172.30.32.2"
 
-// jobTimeout acota un ciclo lanzado por la API o el scheduler.
+// jobTimeout bounds a cycle started by the API or the scheduler.
 const jobTimeout = 15 * time.Minute
 
-// maxJobs es cuántos jobs terminados se recuerdan.
+// maxJobs is how many finished jobs are remembered.
 const maxJobs = 20
 
-// ErrBusy indica que ya hay un job corriendo.
-var ErrBusy = errors.New("ya hay un sync corriendo")
+// ErrBusy means a job is already running.
+var ErrBusy = errors.New("a sync is already running")
 
-// Estados de un job.
+// Job states.
 const (
 	JobRunning = "running"
 	JobDone    = "done"
 	JobFailed  = "failed"
 )
 
-// SyncFunc corre un ciclo. Normalmente es Engine.Sync.
+// SyncFunc runs a cycle. Normally it is Engine.Sync.
 type SyncFunc func(ctx context.Context, so engine.SyncOptions) (*engine.Report, error)
 
-// Job es un ciclo lanzado por la API, el scheduler o stdin.
+// Job is a cycle started by the API, the scheduler or stdin.
 type Job struct {
 	ID       string             `json:"id"`
 	Trigger  string             `json:"trigger"`
@@ -55,21 +55,21 @@ type Job struct {
 	Error    string             `json:"error,omitempty"`
 }
 
-// Options configura el servidor.
+// Options configures the server.
 type Options struct {
 	Config   *config.Config
 	StateDir string
 	Sync     SyncFunc
-	// Token es el bearer token para requests que no vienen de ingress.
-	// Vacío = solo se acepta ingress.
+	// Token is the bearer token for requests that do not come from ingress.
+	// Empty = only ingress is accepted.
 	Token string
-	// TrustedIPs se aceptan sin token (por defecto, solo IngressIP).
+	// TrustedIPs are accepted without a token (by default, only IngressIP).
 	TrustedIPs []string
-	// OnJob se llama al terminar cada job (logs).
+	// OnJob is called when each job finishes (logs).
 	OnJob func(*Job)
 }
 
-// Server es el servidor de la API y el dueño de los jobs.
+// Server is the API server and the owner of the jobs.
 type Server struct {
 	opts    Options
 	trusted map[string]bool
@@ -80,7 +80,7 @@ type Server struct {
 	wg      sync.WaitGroup
 }
 
-// New crea el servidor.
+// New creates the server.
 func New(opts Options) *Server {
 	s := &Server{opts: opts, trusted: map[string]bool{}}
 	ips := opts.TrustedIPs
@@ -93,7 +93,8 @@ func New(opts Options) *Server {
 	return s
 }
 
-// Trigger lanza un ciclo en segundo plano. Devuelve ErrBusy si ya hay uno.
+// Trigger starts a cycle in the background. It returns ErrBusy if one is
+// already running.
 func (s *Server) Trigger(trigger string, so engine.SyncOptions) (*Job, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -113,8 +114,8 @@ func (s *Server) Trigger(trigger string, so engine.SyncOptions) (*Job, error) {
 
 func (s *Server) run(j *Job) {
 	defer s.wg.Done()
-	// Un ciclo nunca se cancela a mitad de camino por un apagado: cortar un
-	// apply deja el journal para recuperar, pero es mejor no forzarlo.
+	// A cycle is never cancelled midway by a shutdown: cutting an apply short
+	// leaves the journal to recover from, but it is better not to force it.
 	ctx, cancel := context.WithTimeout(context.Background(), jobTimeout)
 	defer cancel()
 	rep, err := s.opts.Sync(ctx, j.Options)
@@ -132,10 +133,10 @@ func (s *Server) run(j *Job) {
 	}
 }
 
-// Wait espera a que termine el job en curso (apagado prolijo).
+// Wait waits for the running job to finish (graceful shutdown).
 func (s *Server) Wait() { s.wg.Wait() }
 
-// Job devuelve una copia de un job por ID.
+// Job returns a copy of a job by ID.
 func (s *Server) Job(id string) (*Job, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -147,7 +148,7 @@ func (s *Server) Job(id string) (*Job, bool) {
 	return nil, false
 }
 
-// Running devuelve una copia del job en curso, o nil.
+// Running returns a copy of the running job, or nil.
 func (s *Server) Running() *Job {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -157,7 +158,7 @@ func (s *Server) Running() *Job {
 	return s.snapshot(s.running)
 }
 
-// snapshot copia un job; se llama con s.mu tomado.
+// snapshot copies a job; it is called with s.mu held.
 func (s *Server) snapshot(j *Job) *Job {
 	c := *j
 	return &c
@@ -169,7 +170,7 @@ func newID() string {
 	return hex.EncodeToString(b)
 }
 
-// Handler devuelve el http.Handler de la API, con autenticación.
+// Handler returns the API's http.Handler, with authentication.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/status", s.status)
@@ -190,17 +191,17 @@ func (s *Server) auth(next http.Handler) http.Handler {
 		}
 		got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if !ok || s.opts.Token == "" || subtle.ConstantTimeCompare([]byte(got), []byte(s.opts.Token)) != 1 {
-			writeError(w, http.StatusUnauthorized, "falta un token válido (Authorization: Bearer …)")
+			writeError(w, http.StatusUnauthorized, "a valid token is required (Authorization: Bearer …)")
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
 }
 
-// StatusResponse es la respuesta de GET /api/v1/status.
+// StatusResponse is the response of GET /api/v1/status.
 type StatusResponse struct {
 	*engine.State
-	// Syncing indica que hay un ciclo corriendo ahora.
+	// Syncing means a cycle is running right now.
 	Syncing bool `json:"syncing"`
 	Job     *Job `json:"job,omitempty"`
 }
@@ -217,7 +218,8 @@ func (s *Server) status(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// pending corre un dry-run sincrónico: qué subiría el box y qué bajaría de main.
+// pending runs a synchronous dry-run: what the box would push and what would
+// come down from main.
 func (s *Server) pending(w http.ResponseWriter, r *http.Request) {
 	if s.Running() != nil {
 		writeError(w, http.StatusConflict, ErrBusy.Error())
@@ -234,13 +236,13 @@ func (s *Server) pending(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// ConflictResponse es la respuesta de GET /api/v1/conflict.
+// ConflictResponse is the response of GET /api/v1/conflict.
 type ConflictResponse struct {
 	Conflict bool     `json:"conflict"`
 	Paths    []string `json:"paths,omitempty"`
 	Box      string   `json:"box,omitempty"`
 	Main     string   `json:"main,omitempty"`
-	// CompareURL es el compare de GitHub main...box, si el remoto es GitHub.
+	// CompareURL is the GitHub main...box compare, if the remote is GitHub.
 	CompareURL string `json:"compare_url,omitempty"`
 }
 
@@ -258,7 +260,7 @@ func (s *Server) conflict(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// SyncRequest es el body opcional de POST /api/v1/sync.
+// SyncRequest is the optional body of POST /api/v1/sync.
 type SyncRequest struct {
 	DryRun          bool `json:"dry_run"`
 	AcceptBootstrap bool `json:"accept_bootstrap"`
@@ -271,7 +273,7 @@ func (s *Server) sync(w http.ResponseWriter, r *http.Request) {
 		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10))
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(&req); err != nil {
-			writeError(w, http.StatusBadRequest, "body inválido: "+err.Error())
+			writeError(w, http.StatusBadRequest, "invalid body: "+err.Error())
 			return
 		}
 	}
@@ -287,7 +289,7 @@ func (s *Server) sync(w http.ResponseWriter, r *http.Request) {
 func (s *Server) job(w http.ResponseWriter, r *http.Request) {
 	j, ok := s.Job(r.PathValue("id"))
 	if !ok {
-		writeError(w, http.StatusNotFound, "no existe ese job")
+		writeError(w, http.StatusNotFound, "no such job")
 		return
 	}
 	writeJSON(w, http.StatusOK, j)
@@ -296,7 +298,7 @@ func (s *Server) job(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deployKey(w http.ResponseWriter, _ *http.Request) {
 	pub, err := engine.DeployKey(s.opts.StateDir)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "no hay deploy key: falta inicializar")
+		writeError(w, http.StatusNotFound, "no deploy key: not initialized yet")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"public_key": pub})
@@ -304,7 +306,8 @@ func (s *Server) deployKey(w http.ResponseWriter, _ *http.Request) {
 
 var githubRepo = regexp.MustCompile(`^(?:git@github\.com:|ssh://git@github\.com/)([^/]+)/(.+?)(?:\.git)?$`)
 
-// CompareURL arma el link al compare de GitHub, o "" si el remoto no es GitHub.
+// CompareURL builds the link to the GitHub compare, or "" if the remote is
+// not GitHub.
 func CompareURL(repo, main, box string) string {
 	m := githubRepo.FindStringSubmatch(repo)
 	if m == nil {

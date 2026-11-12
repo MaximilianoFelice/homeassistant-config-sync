@@ -13,15 +13,15 @@ import (
 	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/secrets"
 )
 
-// scanMaxSize es el tamaño máximo de archivo que mira scan-secrets.
+// scanMaxSize is the largest file size scan-secrets looks at.
 const scanMaxSize = 1 << 20
 
-// scanSecrets corre el escáner sobre archivos o directorios sueltos. Imprime
-// path:línea: regla (severidad) [fingerprint], nunca el valor. Sale con 1 si
-// hay hallazgos bloqueantes.
+// scanSecrets runs the scanner over arbitrary files or directories. It prints
+// path:line: rule (severity) [fingerprint], never the value. It exits with 1
+// if there are blocking findings.
 func scanSecrets(g globalFlags, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		_, _ = fmt.Fprintln(stderr, "uso: hcs scan-secrets [--config FILE] PATH...")
+		_, _ = fmt.Fprintln(stderr, "usage: hcs scan-secrets [--config FILE] PATH...")
 		return 2
 	}
 	cfg := config.Default()
@@ -62,7 +62,7 @@ func scanSecrets(g globalFlags, args []string, stdout, stderr io.Writer) int {
 				return err
 			}
 			if bytes.IndexByte(b[:min(len(b), 8192)], 0) >= 0 {
-				return nil // binario
+				return nil // binary
 			}
 			contents[filepath.ToSlash(p)] = b
 			return nil
@@ -82,13 +82,13 @@ func scanSecrets(g globalFlags, args []string, stdout, stderr io.Writer) int {
 		for _, f := range be.Findings {
 			_, _ = fmt.Fprintln(stdout, f.String())
 		}
-		_, _ = fmt.Fprintf(stderr, "%d hallazgo(s) bloqueante(s), %d advertencia(s) en %d archivo(s)\n", len(be.Findings), len(warnings), len(contents))
+		_, _ = fmt.Fprintf(stderr, "%d blocking finding(s), %d warning(s) in %d file(s)\n", len(be.Findings), len(warnings), len(contents))
 		return 1
 	}
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "hcs:", err)
 		return 2
 	}
-	_, _ = fmt.Fprintf(stderr, "sin hallazgos bloqueantes (%d advertencia(s)) en %d archivo(s)\n", len(warnings), len(contents))
+	_, _ = fmt.Fprintf(stderr, "no blocking findings (%d warning(s)) in %d file(s)\n", len(warnings), len(contents))
 	return 0
 }

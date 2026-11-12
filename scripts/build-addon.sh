@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Compila hcs para las arquitecturas de la app y lo deja en
-# homeassistant_config_sync/bin/, que es lo que copia el Dockerfile.
+# Builds hcs for the app's architectures and puts it in
+# homeassistant_config_sync/bin/, which is what the Dockerfile copies.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

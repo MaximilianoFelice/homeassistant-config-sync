@@ -8,8 +8,8 @@ import (
 	"syscall"
 )
 
-// lock toma un flock exclusivo no bloqueante. Lo libera el kernel si el
-// proceso muere, así que un corte nunca deja el lock tomado.
+// lock takes a non-blocking exclusive flock. The kernel releases it if the
+// process dies, so a crash never leaves the lock held.
 func lock(path string) (unlock func(), err error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {

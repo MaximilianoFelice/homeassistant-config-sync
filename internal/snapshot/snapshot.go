@@ -1,7 +1,7 @@
-// Package snapshot implementa el paso 2 del ciclo (design.md §6): escanear
-// el disco vivo y, si difiere de la rama box, commitear la diferencia sobre
-// box. Solo cambia paths gestionados; todo lo demás del árbol se copia del
-// commit padre.
+// Package snapshot implements step 2 of the cycle (design.md §6): scan the
+// live disk and, if it differs from the box branch, commit the difference on
+// top of box. It only changes managed paths; everything else in the tree is
+// copied from the parent commit.
 package snapshot
 
 import (
@@ -17,18 +17,18 @@ import (
 	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/scan"
 )
 
-// minDeletesForPercent: el umbral porcentual del guard de borrado masivo
-// solo aplica desde esta cantidad de borrados, para que borrar 1 de 4
-// archivos en una config chica no frene el sync.
+// minDeletesForPercent: the mass-delete guard's percentage threshold only
+// applies from this number of deletions on, so deleting 1 of 4 files in a
+// small config does not stop the sync.
 const minDeletesForPercent = 5
 
-// Errores de los guards. Se comparan con errors.Is.
+// Guard errors. Compare them with errors.Is.
 var (
-	ErrSuspicious = errors.New("snapshot sospechoso")
-	ErrMassDelete = errors.New("borrado masivo")
+	ErrSuspicious = errors.New("suspicious snapshot")
+	ErrMassDelete = errors.New("mass deletion")
 )
 
-// ChangeKind es el tipo de cambio de un path.
+// ChangeKind is the kind of change of a path.
 type ChangeKind string
 
 const (
@@ -37,7 +37,7 @@ const (
 	Deleted  ChangeKind = "D"
 )
 
-// Change es un cambio del box respecto de la rama box.
+// Change is a change on the box relative to the box branch.
 type Change struct {
 	Path   string
 	Kind   ChangeKind
@@ -46,44 +46,44 @@ type Change struct {
 	NewOID string
 }
 
-// Options configura un snapshot.
+// Options configures a snapshot.
 type Options struct {
 	Matcher *paths.Matcher
-	// Ref es la rama box completa, p. ej. "refs/heads/box".
+	// Ref is the full box branch, e.g. "refs/heads/box".
 	Ref                string
 	MaxFileSize        int64
 	DeleteGuardFiles   int
 	DeleteGuardPercent int
-	// AllowMassDelete saltea el guard de borrado masivo (confirmación explícita).
+	// AllowMassDelete skips the mass-delete guard (explicit confirmation).
 	AllowMassDelete bool
-	// Author es "Nombre <email>".
+	// Author is "Name <email>".
 	Author string
 	Now    func() time.Time
 	Cache  scan.Cache
-	// BeforeCommit corre después de calcular los cambios y antes de escribir
-	// cualquier objeto en el repo. Recibe el contenido de lo agregado o
-	// modificado. Si devuelve error no se escribe ni se commitea nada (acá
-	// se engancha el escáner de secretos en M5).
+	// BeforeCommit runs after the changes are computed and before any object
+	// is written to the repo. It receives the content of what was added or
+	// modified. If it returns an error nothing is written or committed (the
+	// secret scanner hooks in here in M5).
 	BeforeCommit func(ctx context.Context, changes []Change, contents map[string][]byte) error
-	// DryRun calcula los cambios y corre BeforeCommit, pero no escribe
-	// objetos ni mueve la rama.
+	// DryRun computes the changes and runs BeforeCommit, but does not write
+	// objects or move the branch.
 	DryRun bool
 }
 
-// Result es el resultado de un snapshot.
+// Result is the result of a snapshot.
 type Result struct {
-	// Parent es la punta de box antes del snapshot ("" si no existía).
+	// Parent is the tip of box before the snapshot ("" if it did not exist).
 	Parent string
-	// Commit es el commit nuevo, o "" si no hubo cambios.
+	// Commit is the new commit, or "" if there were no changes.
 	Commit  string
 	Changes []Change
 	Skipped []scan.Skipped
-	// Cache es la cache de stat para el próximo snapshot. Vale aunque haya
-	// error, salvo que el error sea del escaneo mismo.
+	// Cache is the stat cache for the next snapshot. It is valid even if
+	// there is an error, unless the error comes from the scan itself.
 	Cache scan.Cache
 }
 
-// Take hace el snapshot.
+// Take takes the snapshot.
 func Take(ctx context.Context, repo *gitx.Repo, opts Options) (*Result, error) {
 	now := time.Now
 	if opts.Now != nil {
@@ -125,7 +125,7 @@ func Take(ctx context.Context, repo *gitx.Repo, opts Options) (*Result, error) {
 		content := f.Content
 		if content == nil {
 			if content, err = scan.ReadVerified(f.BoxPath, f.OID, opts.MaxFileSize); err != nil {
-				return res, fmt.Errorf("releyendo %s: %w", c.Path, err)
+				return res, fmt.Errorf("re-reading %s: %w", c.Path, err)
 			}
 		}
 		contents[c.Path] = content
@@ -151,7 +151,7 @@ func Take(ctx context.Context, repo *gitx.Repo, opts Options) (*Result, error) {
 			return res, err
 		}
 		if oid != c.NewOID {
-			return res, fmt.Errorf("%s: git calculó el blob %s y el escaneo %s", c.Path, oid, c.NewOID)
+			return res, fmt.Errorf("%s: git computed blob %s but the scan computed %s", c.Path, oid, c.NewOID)
 		}
 		updates = append(updates, gitx.IndexUpdate{Path: c.Path, Mode: c.Mode, OID: oid})
 	}
@@ -172,7 +172,7 @@ func Take(ctx context.Context, repo *gitx.Repo, opts Options) (*Result, error) {
 	if err != nil {
 		return res, err
 	}
-	// El autor sale de la config (commit_author); el committer es el motor.
+	// The author comes from the config (commit_author); the committer is the engine.
 	committer, _ := gitx.ParseIdent(gitx.EngineIdent, when)
 	var parents []string
 	if parent != "" {
@@ -189,8 +189,8 @@ func Take(ctx context.Context, repo *gitx.Repo, opts Options) (*Result, error) {
 	return res, nil
 }
 
-// diff compara el árbol de box con el escaneo. Devuelve los cambios y
-// cuántos paths gestionados tenía la base.
+// diff compares the box tree with the scan. It returns the changes and how
+// many managed paths the base had.
 func diff(m *paths.Matcher, base []gitx.TreeEntry, sr *scan.Result) ([]Change, int, error) {
 	roots := map[int]scan.Root{}
 	for _, r := range sr.Roots {
@@ -206,7 +206,7 @@ func diff(m *paths.Matcher, base []gitx.TreeEntry, sr *scan.Result) ([]Change, i
 		inBase[e.Path] = true
 		cls := m.ClassifyRepoPath(e.Path)
 		if !cls.Managed {
-			continue // es del repo: se conserva tal cual
+			continue // owned by the repo: kept as is
 		}
 		baseManaged++
 		baseManagedByMapping[cls.Mapping]++
@@ -218,7 +218,7 @@ func diff(m *paths.Matcher, base []gitx.TreeEntry, sr *scan.Result) ([]Change, i
 			continue
 		}
 		if skipped(sr.Skipped, e.Path) {
-			continue // saltear nunca es borrar
+			continue // skipping is never deleting
 		}
 		changes = append(changes, Change{Path: e.Path, Kind: Deleted, Mode: e.Mode, OldOID: e.OID})
 	}
@@ -228,17 +228,17 @@ func diff(m *paths.Matcher, base []gitx.TreeEntry, sr *scan.Result) ([]Change, i
 		}
 	}
 
-	// Guards de raíz: un mount roto se vería como "borraron todo".
+	// Root guards: a broken mount would look like "everything was deleted".
 	for i, mp := range m.Mappings() {
 		r := roots[i]
 		if !r.Active {
 			continue
 		}
 		if !r.Exists {
-			return nil, 0, fmt.Errorf("%w: la raíz %s del mapeo %q no existe o no es un directorio", ErrSuspicious, mp.Box, mp.Repo)
+			return nil, 0, fmt.Errorf("%w: root %s of mapping %q does not exist or is not a directory", ErrSuspicious, mp.Box, mp.Repo)
 		}
 		if r.Managed == 0 && baseManagedByMapping[i] > 0 {
-			return nil, 0, fmt.Errorf("%w: %s no tiene ningún archivo gestionado pero box tenía %d", ErrSuspicious, mp.Box, baseManagedByMapping[i])
+			return nil, 0, fmt.Errorf("%w: %s has no managed files but box had %d", ErrSuspicious, mp.Box, baseManagedByMapping[i])
 		}
 	}
 
@@ -268,25 +268,25 @@ func massDeleteGuard(changes []Change, baseManaged int, opts Options) error {
 	overFiles := opts.DeleteGuardFiles > 0 && deleted > opts.DeleteGuardFiles
 	overPercent := opts.DeleteGuardPercent > 0 && deleted >= minDeletesForPercent && deleted*100 > opts.DeleteGuardPercent*baseManaged
 	if overFiles || overPercent {
-		return fmt.Errorf("%w: el snapshot borraría %d de %d archivos gestionados", ErrMassDelete, deleted, baseManaged)
+		return fmt.Errorf("%w: the snapshot would delete %d of %d managed files", ErrMassDelete, deleted, baseManaged)
 	}
 	return nil
 }
 
-// maxMessagePaths es cuántos paths se listan en el mensaje del commit.
+// maxMessagePaths is how many paths are listed in the commit message.
 const maxMessagePaths = 100
 
-// Message arma el mensaje del commit de snapshot.
+// Message builds the snapshot commit message.
 func Message(changes []Change) string {
 	var b strings.Builder
 	if len(changes) == 1 {
 		fmt.Fprintf(&b, "box: %s\n\n", changes[0].Path)
 	} else {
-		fmt.Fprintf(&b, "box: %d cambios\n\n", len(changes))
+		fmt.Fprintf(&b, "box: %d changes\n\n", len(changes))
 	}
 	for i, c := range changes {
 		if i == maxMessagePaths {
-			fmt.Fprintf(&b, "… y %d más\n", len(changes)-maxMessagePaths)
+			fmt.Fprintf(&b, "… and %d more\n", len(changes)-maxMessagePaths)
 			break
 		}
 		fmt.Fprintf(&b, "%s %s\n", c.Kind, c.Path)

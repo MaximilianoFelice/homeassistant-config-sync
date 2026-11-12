@@ -18,54 +18,54 @@ import (
 	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/yamlcheck"
 )
 
-// Errores del apply. Se comparan con errors.Is.
+// Apply errors. Compare them with errors.Is.
 var (
-	// ErrPrecheck: un YAML/JSON de R no parsea. No se tocó el disco.
-	ErrPrecheck = errors.New("el pre-check de sintaxis falló")
-	// ErrDiskChanged: el disco ya no está como en B (alguien editó desde el
-	// snapshot). No se tocó el disco; hay que volver a snapshotear.
-	ErrDiskChanged = errors.New("el disco cambió desde el snapshot")
-	// ErrUnsafePath: un path a escribir pasa por un symlink. No se tocó el disco.
-	ErrUnsafePath = errors.New("path inseguro en el box")
-	// ErrRejected: Home Assistant dijo que la config es inválida. Se hizo
-	// rollback a B.
-	ErrRejected = errors.New("home assistant rechazó la configuración")
-	// ErrCheckUnavailable: no se pudo correr el check. Se hizo rollback a B.
-	ErrCheckUnavailable = errors.New("no se pudo validar la configuración")
+	// ErrPrecheck: a YAML/JSON file in R does not parse. The disk was not touched.
+	ErrPrecheck = errors.New("the syntax pre-check failed")
+	// ErrDiskChanged: the disk no longer matches B (someone edited since the
+	// snapshot). The disk was not touched; snapshot again.
+	ErrDiskChanged = errors.New("the disk changed since the snapshot")
+	// ErrUnsafePath: a path to write goes through a symlink. The disk was not touched.
+	ErrUnsafePath = errors.New("unsafe path in the box")
+	// ErrRejected: Home Assistant said the config is invalid. Rolled back
+	// to B.
+	ErrRejected = errors.New("home assistant rejected the configuration")
+	// ErrCheckUnavailable: the check could not run. Rolled back to B.
+	ErrCheckUnavailable = errors.New("could not validate the configuration")
 )
 
-// errCrash simula en tests que el proceso muere a mitad del apply.
-var errCrash = errors.New("crash simulado")
+// errCrash simulates, in tests, the process dying in the middle of the apply.
+var errCrash = errors.New("simulated crash")
 
-// Options configura un apply.
+// Options configures an apply.
 type Options struct {
 	Matcher     *paths.Matcher
 	Checker     ha.Checker
 	JournalPath string
-	// Warnings es la política para los warnings de check_config
-	// (config.WarningsNew por defecto si está vacío).
+	// Warnings is the policy for check_config warnings
+	// (config.WarningsNew by default if empty).
 	Warnings string
 
-	// afterOp es un hook de tests: si devuelve true después de la operación
-	// i, Apply sale como si el proceso hubiera muerto (sin rollback).
+	// afterOp is a test hook: if it returns true after operation i, Apply
+	// returns as if the process had died (no rollback).
 	afterOp func(i int) bool
 }
 
-// Result es el resultado de un apply.
+// Result is the result of an apply.
 type Result struct {
 	Plan *Plan
-	// Applied indica que el disco quedó en R (con el check aprobado si hacía
-	// falta). El journal queda en fase "checked" hasta que el motor mueva box
-	// y llame a Finish.
+	// Applied means the disk is at R (with the check passed if one was
+	// needed). The journal stays in phase "checked" until the engine moves
+	// box and calls Finish.
 	Applied bool
-	// Checked indica que se corrió el check de config.
+	// Checked means the config check ran.
 	Checked bool
 	Check   ha.CheckResult
-	// RolledBack indica que se escribió algo y se volvió a B.
+	// RolledBack means something was written and then reverted to B.
 	RolledBack bool
 }
 
-// Apply lleva el disco de B a R según el plan.
+// Apply takes the disk from B to R according to the plan.
 func Apply(ctx context.Context, repo *gitx.Repo, plan *Plan, opts Options) (*Result, error) {
 	res := &Result{Plan: plan}
 	if len(plan.Ops) == 0 {
@@ -73,7 +73,7 @@ func Apply(ctx context.Context, repo *gitx.Repo, plan *Plan, opts Options) (*Res
 	}
 	mappings := opts.Matcher.Mappings()
 
-	// 1. Pre-check de sintaxis, antes de tocar nada.
+	// 1. Syntax pre-check, before touching anything.
 	contents := map[string][]byte{}
 	var preErrs []error
 	for _, op := range plan.Ops {
@@ -93,7 +93,7 @@ func Apply(ctx context.Context, repo *gitx.Repo, plan *Plan, opts Options) (*Res
 		return res, fmt.Errorf("%w:\n%w", ErrPrecheck, errors.Join(preErrs...))
 	}
 
-	// 2. Paths seguros y compare-and-swap contra B.
+	// 2. Safe paths and compare-and-swap against B.
 	ops := make([]Op, len(plan.Ops))
 	copy(ops, plan.Ops)
 	var changed []string
@@ -123,13 +123,13 @@ func Apply(ctx context.Context, repo *gitx.Repo, plan *Plan, opts Options) (*Res
 	if policy == "" {
 		policy = config.WarningsNew
 	}
-	// Con la política "new" hace falta saber qué warnings hay antes de
-	// escribir. Si el check falla acá, no se tocó nada.
+	// With the "new" policy we need to know which warnings exist before
+	// writing. If the check fails here, nothing was touched.
 	var baseline []string
 	if needsCheck && policy == config.WarningsNew {
 		cr, err := opts.Checker.CheckConfig(ctx)
 		if err != nil {
-			return res, fmt.Errorf("%w (antes de escribir): %w", ErrCheckUnavailable, err)
+			return res, fmt.Errorf("%w (before writing): %w", ErrCheckUnavailable, err)
 		}
 		baseline = cr.Warnings
 	}
@@ -140,7 +140,7 @@ func Apply(ctx context.Context, repo *gitx.Repo, plan *Plan, opts Options) (*Res
 		return res, err
 	}
 
-	// 4. Escribir.
+	// 4. Write.
 	for i, op := range ops {
 		if err := doOp(op, contents[op.RepoPath], mappings[op.Mapping].Box); err != nil {
 			return res, fail(ctx, repo, res, ops[:i+1], opts, fmt.Errorf("%s: %w", op.RepoPath, err))
@@ -150,7 +150,7 @@ func Apply(ctx context.Context, repo *gitx.Repo, plan *Plan, opts Options) (*Res
 		}
 	}
 
-	// 5. Check de config, si se tocó algún mapeo que lo pide.
+	// 5. Config check, if a mapping that requires it was touched.
 	if needsCheck {
 		res.Checked = true
 		cr, err := opts.Checker.CheckConfig(ctx)
@@ -169,7 +169,7 @@ func Apply(ctx context.Context, repo *gitx.Repo, plan *Plan, opts Options) (*Res
 			bad = ha.NewWarnings(baseline, cr.Warnings)
 		}
 		if len(bad) > 0 {
-			return res, fail(ctx, repo, res, ops, opts, fmt.Errorf("%w: el cambio agrega warnings (una integración quedaría desactivada):\n%s", ErrRejected, strings.Join(bad, "\n")))
+			return res, fail(ctx, repo, res, ops, opts, fmt.Errorf("%w: the change adds warnings (an integration would be disabled):\n%s", ErrRejected, strings.Join(bad, "\n")))
 		}
 	}
 	if opts.afterOp != nil && opts.afterOp(len(ops)) {
@@ -184,20 +184,20 @@ func Apply(ctx context.Context, repo *gitx.Repo, plan *Plan, opts Options) (*Res
 	return res, nil
 }
 
-// fail hace rollback de las operaciones hechas y borra el journal. Si el
-// rollback falla, el journal queda para que Recover lo reintente.
+// fail rolls back the operations done and deletes the journal. If the
+// rollback fails, the journal is kept so Recover can retry it.
 func fail(ctx context.Context, repo *gitx.Repo, res *Result, done []Op, opts Options, cause error) error {
 	if err := rollback(ctx, repo, done, opts.Matcher.Mappings()); err != nil {
-		return fmt.Errorf("%w; además falló el rollback (queda el journal para recuperar): %w", cause, err)
+		return fmt.Errorf("%w; the rollback also failed (the journal is kept for recovery): %w", cause, err)
 	}
 	res.RolledBack = true
 	if err := removeJournal(opts.JournalPath); err != nil {
-		return fmt.Errorf("%w; además: %w", cause, err)
+		return fmt.Errorf("%w; also: %w", cause, err)
 	}
 	return cause
 }
 
-// rollback deshace operaciones en orden inverso, dejando cada path como en B.
+// rollback undoes operations in reverse order, leaving each path as in B.
 func rollback(ctx context.Context, repo *gitx.Repo, ops []Op, mappings []config.Mapping) error {
 	var errs []error
 	for i := len(ops) - 1; i >= 0; i-- {
@@ -220,12 +220,12 @@ func restoreOld(ctx context.Context, repo *gitx.Repo, op Op, root string) error 
 	if err != nil {
 		return err
 	}
-	// OldOID no vacío hace que permFor respete OldPerm.
+	// A non-empty OldOID makes permFor honor OldPerm.
 	old := Op{BoxPath: op.BoxPath, NewOID: op.OldOID, NewMode: op.OldMode, OldOID: op.OldOID, OldPerm: op.OldPerm}
 	return doOp(old, content, root)
 }
 
-// doOp hace una operación sobre el disco.
+// doOp performs one operation on the disk.
 func doOp(op Op, content []byte, root string) error {
 	if op.IsDelete() {
 		if err := os.Remove(op.BoxPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -234,12 +234,12 @@ func doOp(op Op, content []byte, root string) error {
 		pruneEmptyDirs(filepath.Dir(op.BoxPath), root)
 		return nil
 	}
-	// Si en el lugar hay un directorio (cambio de directorio a archivo), los
-	// borrados del plan ya lo vaciaron; si no está vacío, os.Remove falla y
-	// se hace rollback.
+	// If there is a directory in its place (directory to file change), the
+	// plan's deletions already emptied it; if it is not empty, os.Remove
+	// fails and the apply rolls back.
 	if fi, err := os.Lstat(op.BoxPath); err == nil && fi.IsDir() {
 		if err := os.Remove(op.BoxPath); err != nil {
-			return fmt.Errorf("hay un directorio con contenido no gestionado: %w", err)
+			return fmt.Errorf("found a directory with unmanaged content: %w", err)
 		}
 	}
 	if err := os.MkdirAll(filepath.Dir(op.BoxPath), 0o755); err != nil {
@@ -248,8 +248,8 @@ func doOp(op Op, content []byte, root string) error {
 	return writeAtomic(op.BoxPath, content, permFor(op))
 }
 
-// permFor conserva los permisos que tenía el archivo y ajusta solo el bit de
-// ejecución según el modo de git.
+// permFor keeps the file's existing permissions and adjusts only the
+// executable bit according to the git mode.
 func permFor(op Op) fs.FileMode {
 	perm := fs.FileMode(0o644)
 	if op.OldOID != "" && op.OldPerm != 0 {
@@ -290,7 +290,7 @@ func writeAtomic(path string, content []byte, perm fs.FileMode) (err error) {
 	return os.Rename(tmp, path)
 }
 
-// pruneEmptyDirs borra directorios vacíos desde dir hacia arriba, sin tocar
+// pruneEmptyDirs deletes empty directories from dir upwards, without touching
 // root.
 func pruneEmptyDirs(dir, root string) {
 	root = filepath.Clean(root)
@@ -301,20 +301,20 @@ func pruneEmptyDirs(dir, root string) {
 	}
 }
 
-// safeParents verifica que ningún componente existente entre root y el
-// directorio padre de p sea un symlink: escribir a través de uno podría
-// salir del mapeo.
+// safeParents checks that no existing component between root and p's
+// parent directory is a symlink: writing through one could escape the
+// mapping.
 func safeParents(root, p string) error {
 	fi, err := os.Lstat(root)
 	if err != nil {
 		return err
 	}
 	if !fi.IsDir() {
-		return fmt.Errorf("%w: la raíz %s no es un directorio", ErrUnsafePath, root)
+		return fmt.Errorf("%w: root %s is not a directory", ErrUnsafePath, root)
 	}
 	rel, err := filepath.Rel(root, p)
 	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
-		return fmt.Errorf("%w: %s está fuera de %s", ErrUnsafePath, p, root)
+		return fmt.Errorf("%w: %s is outside %s", ErrUnsafePath, p, root)
 	}
 	cur := root
 	parts := strings.Split(rel, string(filepath.Separator))
@@ -328,28 +328,28 @@ func safeParents(root, p string) error {
 			return err
 		}
 		if fi.Mode()&fs.ModeSymlink != 0 {
-			return fmt.Errorf("%w: %s es un symlink", ErrUnsafePath, cur)
+			return fmt.Errorf("%w: %s is a symlink", ErrUnsafePath, cur)
 		}
 	}
 	return nil
 }
 
-// matchesOld dice si el disco está como B para esta operación y devuelve los
-// permisos actuales del archivo.
+// matchesOld reports whether the disk matches B for this operation and
+// returns the file's current permissions.
 func matchesOld(op Op) (bool, uint32, error) {
 	st, err := diskState(op.BoxPath)
 	if err != nil {
 		return false, 0, err
 	}
 	if op.OldOID == "" {
-		// Archivo nuevo: no tiene que existir (un directorio sí puede existir,
-		// porque los borrados del mismo plan lo pueden vaciar).
+		// New file: it must not exist (a directory may exist, because the
+		// same plan's deletions can empty it).
 		return !st.exists || st.dir, 0, nil
 	}
 	return st.exists && !st.dir && st.oid == op.OldOID && st.mode == op.OldMode, st.perm, nil
 }
 
-// atState dice si el disco está en el estado (oid, mode) dado.
+// atState reports whether the disk is in the given (oid, mode) state.
 func atState(boxPath, oid, mode string) (bool, error) {
 	st, err := diskState(boxPath)
 	if err != nil {
@@ -369,8 +369,8 @@ type disk struct {
 	perm   uint32
 }
 
-// notExist incluye ENOTDIR: un path cuyo padre es un archivo (cambio de
-// archivo a directorio) tampoco existe.
+// notExist includes ENOTDIR: a path whose parent is a file (file to
+// directory change) does not exist either.
 func notExist(err error) bool {
 	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR)
 }
@@ -387,7 +387,7 @@ func diskState(p string) (disk, error) {
 	case fi.IsDir():
 		return disk{exists: true, dir: true}, nil
 	case !fi.Mode().IsRegular():
-		return disk{}, fmt.Errorf("%w: %s no es un archivo regular", ErrUnsafePath, p)
+		return disk{}, fmt.Errorf("%w: %s is not a regular file", ErrUnsafePath, p)
 	}
 	b, err := os.ReadFile(p)
 	if err != nil {

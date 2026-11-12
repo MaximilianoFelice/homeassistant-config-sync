@@ -6,9 +6,9 @@
     "config": {
       "views": [
         {
-          "title": "Casa",
+          "title": "Home",
           "cards": [
-            {"type": "entities", "entities": ["input_boolean.luz_entrada", "input_number.temperatura_objetivo"]}
+            {"type": "entities", "entities": ["input_boolean.entrance_light", "input_number.target_temperature"]}
           ]
         }
       ]

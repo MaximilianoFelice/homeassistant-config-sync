@@ -1,0 +1,39 @@
+# Light checks on every push and pull request: lint, unit/integration tests
+# with the race detector, and the end-to-end scenario with the no-op checker.
+# The heavy Docker-based suites (real check_config, Core, Supervisor) run in
+# the release workflow or on demand.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go (lint, test, e2e)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+      - name: Lint
+        run: mise run lint
+      - name: Test (race)
+        run: mise run test
+      - name: Build
+        run: mise run build
+      - name: End-to-end (no-op checker)
+        env:
+          E2E_CHECKER: noop
+        run: scripts/e2e-sandbox.sh

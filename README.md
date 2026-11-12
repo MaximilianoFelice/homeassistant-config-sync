@@ -1,38 +1,38 @@
 # homeassistant-config-sync
 
-Sync bidireccional entre la configuración de Home Assistant y un repo git, pensado para correr como app (add-on) de Home Assistant OS.
+Two-way sync between the Home Assistant configuration and a git repo, designed to run as a Home Assistant OS app (add-on).
 
-- Lo que cambia en el box se commitea en la rama `box`; lo que llega a `main` se aplica al box solo si pasa el check de config.
-- Los conflictos frenan el sync y avisan; nunca se pisa nada en silencio.
-- Solo SSH con una deploy key; nada de tokens. Los secretos no salen del box.
+- What changes on the box is committed to the `box` branch; what arrives on `main` is applied to the box only if it passes the config check.
+- Conflicts stop the sync and send a notification; nothing is ever silently overwritten.
+- SSH with a deploy key only; no tokens. Secrets never leave the box.
 
-Estado: **v0** (motor como CLI, testeable en local). Ver [docs/design.md](docs/design.md) y [docs/plan-v0.md](docs/plan-v0.md).
+Status: **v0** (engine as a CLI, testable locally). See [docs/design.md](docs/design.md) and [docs/plan-v0.md](docs/plan-v0.md).
 
-## Desarrollo
+## Development
 
 ```bash
-mise install          # Go y golangci-lint fijados en mise.toml
-mise run check        # lint + tests con -race + build
+mise install          # Go and golangci-lint pinned in mise.toml
+mise run check        # lint + tests with -race + build
 ```
 
-## Pruebas de punta a punta
+## End-to-end tests
 
 ```bash
-mise run test:e2e          # E2E sobre la config sintética de testdata/ (check_config real en Docker)
-mise run test:ha-core      # cliente de HA contra un Core real en Docker
-mise run supervisor:up     # Supervisor real en Docker con la app local
-mise run test:supervisor   # build, opciones, arranque y ciclo completo de la app
+mise run test:e2e          # E2E on the synthetic config in testdata/ (real check_config in Docker)
+mise run test:ha-core      # HA client against a real Core in Docker
+mise run supervisor:up     # real Supervisor in Docker with the local app
+mise run test:supervisor   # build, options, startup, and full cycle of the app
 ```
 
 ## CLI
 
 ```bash
-hcs init     --config cfg.yaml --state-dir DIR   # repo bare, deploy key, known_hosts, token de la API
-hcs plan     --config cfg.yaml --state-dir DIR   # qué haría un sync, sin tocar nada
-hcs sync     --config cfg.yaml --state-dir DIR   # un ciclo
-hcs serve    --config cfg.yaml --state-dir DIR   # API HTTP + scheduler
+hcs init     --config cfg.yaml --state-dir DIR   # bare repo, deploy key, known_hosts, API token
+hcs plan     --config cfg.yaml --state-dir DIR   # what a sync would do, without touching anything
+hcs sync     --config cfg.yaml --state-dir DIR   # one cycle
+hcs serve    --config cfg.yaml --state-dir DIR   # HTTP API + scheduler
 hcs status   --state-dir DIR
 hcs scan-secrets PATH...
 ```
 
-Licencia: MIT.
+License: MIT.

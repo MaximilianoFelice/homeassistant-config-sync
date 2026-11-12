@@ -1,6 +1,6 @@
-// Command hcs es el motor de homeassistant-config-sync: sincroniza en las
-// dos direcciones la configuración de Home Assistant con un repo git.
-// Ver docs/design.md.
+// Command hcs is the homeassistant-config-sync engine: it syncs the Home
+// Assistant configuration with a git repo in both directions.
+// See docs/design.md.
 package main
 
 import (
@@ -12,7 +12,7 @@ import (
 	"text/tabwriter"
 )
 
-// version se pisa en build con -ldflags "-X main.version=...".
+// version is overridden at build time with -ldflags "-X main.version=...".
 var version = "dev"
 
 type command struct {
@@ -21,17 +21,17 @@ type command struct {
 }
 
 var commands = []command{
-	{"init", "crea el repo bare, la deploy key y known_hosts en el state dir"},
-	{"status", "muestra el estado del último ciclo"},
-	{"plan", "muestra lo que haría un sync, sin tocar nada"},
-	{"sync", "corre un ciclo de sync"},
-	{"serve", "levanta la API HTTP y el scheduler"},
-	{"deploy-key", "muestra (o rota) la clave pública de la deploy key"},
-	{"scan-secrets", "corre el escáner de secretos sobre paths sueltos"},
-	{"version", "muestra la versión"},
+	{"init", "create the bare repo, the deploy key and known_hosts in the state dir"},
+	{"status", "show the state of the last cycle"},
+	{"plan", "show what a sync would do, without touching anything"},
+	{"sync", "run one sync cycle"},
+	{"serve", "start the HTTP API and the scheduler"},
+	{"deploy-key", "show (or rotate) the deploy key's public key"},
+	{"scan-secrets", "run the secret scanner over arbitrary paths"},
+	{"version", "show the version"},
 }
 
-// globalFlags son los flags que aceptan todos los subcomandos.
+// globalFlags are the flags every subcommand accepts.
 type globalFlags struct {
 	config          string
 	stateDir        string
@@ -39,29 +39,29 @@ type globalFlags struct {
 	allowFileRemote bool
 	json            bool
 
-	// Solo sync/plan.
+	// sync/plan only.
 	dryRun          bool
 	acceptBootstrap bool
 	allowMassDelete bool
 
-	// Solo serve.
+	// serve only.
 	listen      string
 	stdin       bool
 	syncOnStart bool
 }
 
 func (g *globalFlags) register(fs *flag.FlagSet) {
-	fs.StringVar(&g.config, "config", "", "archivo YAML/JSON con el esquema de options.json")
-	fs.StringVar(&g.stateDir, "state-dir", "/data", "directorio de estado del motor")
-	fs.StringVar(&g.checker, "checker", "", "supervisor | noop | command:'<cmd>' (default: supervisor si hay SUPERVISOR_TOKEN, si no noop)")
-	fs.BoolVar(&g.allowFileRemote, "allow-file-remote", false, "permite remotos file:// (solo v0 y tests)")
-	fs.BoolVar(&g.json, "json", false, "salida en JSON (status, sync, plan)")
-	fs.BoolVar(&g.dryRun, "dry-run", false, "sync: calcular sin commitear, aplicar ni pushear")
-	fs.BoolVar(&g.acceptBootstrap, "accept-bootstrap", false, "sync: confirmar el primer merge de box en un main existente")
-	fs.BoolVar(&g.allowMassDelete, "allow-mass-delete", false, "sync: confirmar un borrado masivo")
-	fs.StringVar(&g.listen, "listen", "127.0.0.1:8099", "serve: dirección de la API")
-	fs.BoolVar(&g.stdin, "stdin", false, "serve: aceptar comandos por stdin (\"sync\"), como hassio.addon_stdin")
-	fs.BoolVar(&g.syncOnStart, "sync-on-start", false, "serve: correr un sync al arrancar")
+	fs.StringVar(&g.config, "config", "", "YAML/JSON file with the options.json schema")
+	fs.StringVar(&g.stateDir, "state-dir", "/data", "engine state directory")
+	fs.StringVar(&g.checker, "checker", "", "supervisor | noop | command:'<cmd>' (default: supervisor if SUPERVISOR_TOKEN is set, otherwise noop)")
+	fs.BoolVar(&g.allowFileRemote, "allow-file-remote", false, "allow file:// remotes (v0 and tests only)")
+	fs.BoolVar(&g.json, "json", false, "JSON output (status, sync, plan)")
+	fs.BoolVar(&g.dryRun, "dry-run", false, "sync: compute without committing, applying or pushing")
+	fs.BoolVar(&g.acceptBootstrap, "accept-bootstrap", false, "sync: confirm the first merge of box into an existing main")
+	fs.BoolVar(&g.allowMassDelete, "allow-mass-delete", false, "sync: confirm a mass deletion")
+	fs.StringVar(&g.listen, "listen", "127.0.0.1:8099", "serve: API address")
+	fs.BoolVar(&g.stdin, "stdin", false, "serve: accept commands on stdin (\"sync\"), like hassio.addon_stdin")
+	fs.BoolVar(&g.syncOnStart, "sync-on-start", false, "serve: run a sync on startup")
 }
 
 func main() {
@@ -84,7 +84,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	name := args[0]
 	if !known(name) {
-		_, _ = fmt.Fprintf(stderr, "hcs: comando desconocido %q\n\n", name)
+		_, _ = fmt.Fprintf(stderr, "hcs: unknown command %q\n\n", name)
 		printUsage(stderr)
 		return 2
 	}
@@ -117,7 +117,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdServe(g, stdout, stderr)
 	}
 
-	_, _ = fmt.Fprintf(stderr, "hcs %s: todavía no implementado\n", name)
+	_, _ = fmt.Fprintf(stderr, "hcs %s: not implemented yet\n", name)
 	return 1
 }
 
@@ -131,14 +131,14 @@ func known(name string) bool {
 }
 
 func printUsage(w io.Writer) {
-	_, _ = fmt.Fprintln(w, "Uso: hcs <comando> [flags]")
+	_, _ = fmt.Fprintln(w, "Usage: hcs <command> [flags]")
 	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, "Comandos:")
+	_, _ = fmt.Fprintln(w, "Commands:")
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	for _, c := range commands {
 		_, _ = fmt.Fprintf(tw, "  %s\t%s\n", c.name, c.summary)
 	}
 	_ = tw.Flush()
 	_, _ = fmt.Fprintln(w)
-	_, _ = fmt.Fprintln(w, "Usá 'hcs <comando> -h' para ver los flags.")
+	_, _ = fmt.Fprintln(w, "Run 'hcs <command> -h' to see its flags.")
 }

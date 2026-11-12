@@ -22,9 +22,9 @@ import (
 
 var ctx = context.Background()
 
-// world es un escenario completo y autocontenido: un box de mentira, un
-// "GitHub" que es un repo bare local (file://), un usuario en "local" que
-// commitea y pushea a main, y un Home Assistant de mentira.
+// world is a complete, self-contained scenario: a fake box, a "GitHub" that
+// is a local bare repo (file://), a user working "locally" who commits and
+// pushes to main, and a fake Home Assistant.
 type world struct {
 	t      *testing.T
 	ha     string
@@ -96,7 +96,7 @@ func (w *world) newEngine() {
 	w.eng = e
 }
 
-// boxPath traduce config/… y app_configs/… al disco del box.
+// boxPath maps config/… and app_configs/… to the box's disk.
 func (w *world) boxPath(p string) string {
 	if rel, ok := strings.CutPrefix(p, "config/"); ok {
 		return filepath.Join(w.ha, rel)
@@ -104,11 +104,11 @@ func (w *world) boxPath(p string) string {
 	if rel, ok := strings.CutPrefix(p, "app_configs/"); ok {
 		return filepath.Join(w.addons, rel)
 	}
-	w.t.Fatalf("path fuera de los mapeos: %s", p)
+	w.t.Fatalf("path outside the mappings: %s", p)
 	return ""
 }
 
-// edit simula una edición en el box (UI de HA, editor de archivos…).
+// edit simulates an edit on the box (HA UI, file editor…).
 func (w *world) edit(p, content string) { testkit.WriteFile(w.t, w.boxPath(p), content) }
 
 func (w *world) disk() map[string]string {
@@ -148,7 +148,7 @@ func (w *world) remoteFiles(branch string) map[string]string {
 	return testkit.Tree(w.t, w.origin, "refs/heads/"+branch)
 }
 
-// devFetch trae main y box del remoto al repo del "usuario en local".
+// devFetch fetches main and box from the remote into the local user's repo.
 func (w *world) devFetch() (main, box string) {
 	w.t.Helper()
 	heads, err := w.dev.LsRemote(ctx, w.url)
@@ -171,7 +171,7 @@ func (w *world) devFetch() (main, box string) {
 	return main, box
 }
 
-// devPush commitea sobre origin/main y pushea, como un usuario en local.
+// devPush commits on top of origin/main and pushes, like a local user.
 func (w *world) devPush(changes map[string]string) string {
 	w.t.Helper()
 	main, _ := w.devFetch()
@@ -182,8 +182,8 @@ func (w *world) devPush(changes map[string]string) string {
 	return c
 }
 
-// devResolve hace lo que haría un usuario en local: git merge origin/box en
-// main, pisa los paths en conflicto con la resolución dada y pushea.
+// devResolve does what a local user would do: git merge origin/box into
+// main, overwrite the conflicting paths with the given resolution and push.
 func (w *world) devResolve(resolution map[string]string) string {
 	w.t.Helper()
 	main, box := w.devFetch()
@@ -226,23 +226,23 @@ func assertFiles(t *testing.T, got, want map[string]string) {
 	t.Helper()
 	for p, c := range want {
 		if got[p] != c {
-			t.Errorf("%s = %q, quería %q", p, got[p], c)
+			t.Errorf("%s = %q, want %q", p, got[p], c)
 		}
 	}
 	for p := range got {
 		if _, ok := want[p]; !ok {
-			t.Errorf("sobra %s", p)
+			t.Errorf("unexpected %s", p)
 		}
 	}
 }
 
-// seedBox deja un box típico y lo sincroniza contra un remoto vacío.
+// seedBox sets up a typical box and syncs it against an empty remote.
 func (w *world) seedBox() {
 	w.t.Helper()
-	w.edit("config/configuration.yaml", "homeassistant:\n  name: Casa\n")
-	w.edit("config/automations.yaml", "- id: '1'\n  alias: uno\n")
-	w.edit("config/scripts.yaml", "hola:\n  sequence: []\n")
-	w.edit("config/secrets.yaml", "pw: nunca-sale\n")
+	w.edit("config/configuration.yaml", "homeassistant:\n  name: Home\n")
+	w.edit("config/automations.yaml", "- id: '1'\n  alias: one\n")
+	w.edit("config/scripts.yaml", "hello:\n  sequence: []\n")
+	w.edit("config/secrets.yaml", "pw: never-leaves\n")
 	if rep := w.sync(); rep.State != StateIdle {
 		w.t.Fatalf("seed: %+v", rep)
 	}
@@ -256,16 +256,16 @@ func TestFirstSyncToEmptyRemote(t *testing.T) {
 		t.Fatalf("main = %s, box = %s", main, box)
 	}
 	assertFiles(t, w.remoteFiles("main"), map[string]string{
-		"config/configuration.yaml": "homeassistant:\n  name: Casa\n",
-		"config/automations.yaml":   "- id: '1'\n  alias: uno\n",
-		"config/scripts.yaml":       "hola:\n  sequence: []\n",
+		"config/configuration.yaml": "homeassistant:\n  name: Home\n",
+		"config/automations.yaml":   "- id: '1'\n  alias: one\n",
+		"config/scripts.yaml":       "hello:\n  sequence: []\n",
 	})
 	if w.checks != 0 {
-		t.Error("no había nada que aplicar: no debería correr check_config")
+		t.Error("there was nothing to apply: check_config should not run")
 	}
 	st, _ := LoadState(w.opts.StateDir)
 	if st.MainHead != main || st.BoxHead != box {
-		t.Errorf("estado: main %s box %s, quería %s", st.MainHead, st.BoxHead, main)
+		t.Errorf("state: main %s box %s, want %s", st.MainHead, st.BoxHead, main)
 	}
 }
 
@@ -275,154 +275,154 @@ func TestSecondSyncIsANoop(t *testing.T) {
 	before, events := w.remote("main"), len(w.events)
 	rep := w.sync()
 	if rep.SnapshotCommit != "" || len(rep.Pushed) != 0 || rep.Applied {
-		t.Errorf("un sync sin cambios no debería hacer nada: %+v", rep)
+		t.Errorf("a sync without changes should do nothing: %+v", rep)
 	}
 	if w.remote("main") != before || len(w.events) != events {
-		t.Error("main se movió o se emitió un evento sin cambios")
+		t.Error("main moved or an event was emitted without changes")
 	}
 }
 
 func TestBoxChangeReachesMain(t *testing.T) {
 	w := newWorld(t)
 	w.seedBox()
-	w.edit("config/automations.yaml", "- id: '1'\n  alias: editada en la UI\n")
+	w.edit("config/automations.yaml", "- id: '1'\n  alias: edited in the UI\n")
 	rep := w.sync()
 	if rep.MergeKind != merge.FastForwardMain || rep.State != StateIdle {
 		t.Fatalf("= %+v", rep)
 	}
-	if got := w.remoteFiles("main")["config/automations.yaml"]; got != "- id: '1'\n  alias: editada en la UI\n" {
+	if got := w.remoteFiles("main")["config/automations.yaml"]; got != "- id: '1'\n  alias: edited in the UI\n" {
 		t.Errorf("main/automations = %q", got)
 	}
 	if w.remote("main") != w.remote("box") {
-		t.Error("main y box deberían coincidir")
+		t.Error("main and box should match")
 	}
 	if w.lastEvent().Type != ha.EventSyncFinished {
-		t.Errorf("evento = %+v", w.lastEvent())
+		t.Errorf("event = %+v", w.lastEvent())
 	}
 }
 
 func TestMainChangeIsAppliedCheckedAndReloaded(t *testing.T) {
 	w := newWorld(t)
 	w.seedBox()
-	w.devPush(map[string]string{"config/scripts.yaml": "hola:\n  sequence:\n    - delay: 1\n", "README.md": "# casa\n"})
+	w.devPush(map[string]string{"config/scripts.yaml": "hello:\n  sequence:\n    - delay: 1\n", "README.md": "# home\n"})
 	rep := w.sync()
 	if rep.MergeKind != merge.FastForwardBox || !rep.Applied || !rep.Checked || !rep.Reloaded {
 		t.Fatalf("= %+v", rep)
 	}
-	// Dos checks: uno antes de escribir (warnings de base) y otro después.
+	// Two checks: one before writing (baseline warnings) and one after.
 	if w.checks != 2 || w.reloads != 1 {
 		t.Errorf("checks = %d, reloads = %d", w.checks, w.reloads)
 	}
-	if got := w.disk()["config/scripts.yaml"]; got != "hola:\n  sequence:\n    - delay: 1\n" {
-		t.Errorf("disco = %q", got)
+	if got := w.disk()["config/scripts.yaml"]; got != "hello:\n  sequence:\n    - delay: 1\n" {
+		t.Errorf("disk = %q", got)
 	}
 	if _, ok := w.disk()["config/README.md"]; ok {
-		t.Error("el README es del repo: no baja al box")
+		t.Error("the README belongs to the repo: it does not go down to the box")
 	}
 	if w.remote("box") != w.remote("main") {
-		t.Error("box debería avanzar a main")
+		t.Error("box should advance to main")
 	}
 }
 
 func TestBothSidesMergeCleanly(t *testing.T) {
 	w := newWorld(t)
 	w.seedBox()
-	w.devPush(map[string]string{"config/scripts.yaml": "hola:\n  sequence: [main]\n"})
+	w.devPush(map[string]string{"config/scripts.yaml": "hello:\n  sequence: [main]\n"})
 	w.edit("config/automations.yaml", "- id: '1'\n  alias: box\n")
 	rep := w.sync()
 	if rep.MergeKind != merge.Merged || !rep.Applied {
 		t.Fatalf("= %+v", rep)
 	}
 	d := w.disk()
-	if d["config/scripts.yaml"] != "hola:\n  sequence: [main]\n" || d["config/automations.yaml"] != "- id: '1'\n  alias: box\n" {
-		t.Errorf("disco = %v", d)
+	if d["config/scripts.yaml"] != "hello:\n  sequence: [main]\n" || d["config/automations.yaml"] != "- id: '1'\n  alias: box\n" {
+		t.Errorf("disk = %v", d)
 	}
 	m := w.remoteFiles("main")
 	if m["config/scripts.yaml"] != d["config/scripts.yaml"] || m["config/automations.yaml"] != d["config/automations.yaml"] {
 		t.Errorf("main = %v", m)
 	}
 	if w.remote("main") != w.remote("box") {
-		t.Error("main y box deberían coincidir")
+		t.Error("main and box should match")
 	}
 }
 
 func TestConflictStopsKeepsBoxAndResolves(t *testing.T) {
 	w := newWorld(t)
 	w.seedBox()
-	mainBefore := w.devPush(map[string]string{"config/automations.yaml": "- id: '1'\n  alias: desde main\n"})
-	w.edit("config/automations.yaml", "- id: '1'\n  alias: desde la UI\n")
+	mainBefore := w.devPush(map[string]string{"config/automations.yaml": "- id: '1'\n  alias: from main\n"})
+	w.edit("config/automations.yaml", "- id: '1'\n  alias: from the UI\n")
 
 	rep := w.sync()
 	if rep.State != StateConflict || !slices.Equal(rep.ConflictPaths, []string{"config/automations.yaml"}) {
 		t.Fatalf("= %+v", rep)
 	}
 	if w.remote("main") != mainBefore {
-		t.Error("main no se toca en un conflicto")
+		t.Error("main is not touched on a conflict")
 	}
-	if got := w.remoteFiles("box")["config/automations.yaml"]; got != "- id: '1'\n  alias: desde la UI\n" {
-		t.Errorf("box tiene que tener la edición del box: %q", got)
+	if got := w.remoteFiles("box")["config/automations.yaml"]; got != "- id: '1'\n  alias: from the UI\n" {
+		t.Errorf("box must have the box's edit: %q", got)
 	}
-	if got := w.disk()["config/automations.yaml"]; got != "- id: '1'\n  alias: desde la UI\n" {
-		t.Errorf("el disco no se toca en un conflicto: %q", got)
+	if got := w.disk()["config/automations.yaml"]; got != "- id: '1'\n  alias: from the UI\n" {
+		t.Errorf("the disk is not touched on a conflict: %q", got)
 	}
 	if ev := w.lastEvent(); ev.Type != ha.EventConflict || !ev.Persistent || !strings.Contains(ev.Message, "config/automations.yaml") {
-		t.Errorf("evento = %+v", ev)
+		t.Errorf("event = %+v", ev)
 	}
 
-	// Mientras hay conflicto, el box se sigue guardando.
-	w.edit("config/scripts.yaml", "hola:\n  sequence: [durante el conflicto]\n")
+	// While there is a conflict, the box keeps being saved.
+	w.edit("config/scripts.yaml", "hello:\n  sequence: [during the conflict]\n")
 	if rep := w.sync(); rep.State != StateConflict {
-		t.Fatalf("sigue en conflicto: %+v", rep)
+		t.Fatalf("still in conflict: %+v", rep)
 	}
-	if got := w.remoteFiles("box")["config/scripts.yaml"]; got != "hola:\n  sequence: [durante el conflicto]\n" {
-		t.Errorf("box no recibió la edición durante el conflicto: %q", got)
+	if got := w.remoteFiles("box")["config/scripts.yaml"]; got != "hello:\n  sequence: [during the conflict]\n" {
+		t.Errorf("box did not get the edit made during the conflict: %q", got)
 	}
 
-	// El usuario resuelve en local y el ciclo siguiente sale limpio.
-	w.devResolve(map[string]string{"config/automations.yaml": "- id: '1'\n  alias: resuelta\n"})
+	// The user resolves locally and the next cycle comes out clean.
+	w.devResolve(map[string]string{"config/automations.yaml": "- id: '1'\n  alias: resolved\n"})
 	rep = w.sync()
 	if rep.State != StateIdle {
-		t.Fatalf("después de resolver: %+v", rep)
+		t.Fatalf("after resolving: %+v", rep)
 	}
 	d := w.disk()
-	if d["config/automations.yaml"] != "- id: '1'\n  alias: resuelta\n" || d["config/scripts.yaml"] != "hola:\n  sequence: [durante el conflicto]\n" {
-		t.Errorf("disco = %v", d)
+	if d["config/automations.yaml"] != "- id: '1'\n  alias: resolved\n" || d["config/scripts.yaml"] != "hello:\n  sequence: [during the conflict]\n" {
+		t.Errorf("disk = %v", d)
 	}
 	if w.remote("main") != w.remote("box") {
-		t.Error("main y box deberían coincidir")
+		t.Error("main and box should match")
 	}
 }
 
 func TestRejectedChangeIsNotRetriedUntilMainChanges(t *testing.T) {
 	w := newWorld(t)
 	w.seedBox()
-	mainBad := w.devPush(map[string]string{"config/automations.yaml": "- id: '1'\n  trigger: invalido\n"})
+	mainBad := w.devPush(map[string]string{"config/automations.yaml": "- id: '1'\n  trigger: invalid\n"})
 	w.verdict = ha.CheckResult{Valid: false, Errors: "Invalid config for [automation]: trigger"}
 
 	rep := w.sync()
 	if rep.State != StateRejected || !strings.Contains(rep.Error, "Invalid config") {
 		t.Fatalf("= %+v", rep)
 	}
-	if got := w.disk()["config/automations.yaml"]; got != "- id: '1'\n  alias: uno\n" {
+	if got := w.disk()["config/automations.yaml"]; got != "- id: '1'\n  alias: one\n" {
 		t.Errorf("rollback: %q", got)
 	}
 	if w.remote("main") != mainBad || w.reloads != 0 {
-		t.Error("main no se toca y no hay reload")
+		t.Error("main is not touched and there is no reload")
 	}
 
-	// Mismo main: no se vuelve a intentar.
+	// Same main: not retried.
 	if rep := w.sync(); rep.State != StateRejected || w.checks != 2 {
-		t.Errorf("no debería reintentar: %+v, checks = %d", rep, w.checks)
+		t.Errorf("should not retry: %+v, checks = %d", rep, w.checks)
 	}
 
-	// El usuario arregla main: se aplica.
+	// The user fixes main: it is applied.
 	w.verdict = ha.CheckResult{Valid: true}
-	w.devPush(map[string]string{"config/automations.yaml": "- id: '1'\n  alias: arreglada\n"})
+	w.devPush(map[string]string{"config/automations.yaml": "- id: '1'\n  alias: fixed\n"})
 	if rep := w.sync(); rep.State != StateIdle || !rep.Applied {
-		t.Fatalf("después del arreglo: %+v", rep)
+		t.Fatalf("after the fix: %+v", rep)
 	}
-	if got := w.disk()["config/automations.yaml"]; got != "- id: '1'\n  alias: arreglada\n" {
-		t.Errorf("disco = %q", got)
+	if got := w.disk()["config/automations.yaml"]; got != "- id: '1'\n  alias: fixed\n" {
+		t.Errorf("disk = %q", got)
 	}
 }
 
@@ -437,20 +437,20 @@ func TestSecretBlocksEverything(t *testing.T) {
 		t.Fatalf("= %+v", rep)
 	}
 	if w.remote("box") != before || rep.SnapshotCommit != "" {
-		t.Error("no se commitea ni se pushea nada")
+		t.Error("nothing is committed or pushed")
 	}
 	ev := w.lastEvent()
 	if ev.Type != ha.EventBlockedSecrets || strings.Contains(ev.Message, secret) || strings.Contains(rep.Error, secret) {
-		t.Errorf("el evento no puede incluir el valor: %+v", ev)
+		t.Errorf("the event must not include the value: %+v", ev)
 	}
 	st, _ := LoadState(w.opts.StateDir)
 	if st.State != StateBlockedSecrets {
-		t.Errorf("estado persistido = %s", st.State)
+		t.Errorf("persisted state = %s", st.State)
 	}
 
 	w.edit("config/rest.yaml", "sensor:\n  api_key: !secret rest_api_key\n")
 	if rep := w.sync(); rep.State != StateIdle {
-		t.Fatalf("después de arreglarlo: %+v", rep)
+		t.Fatalf("after fixing it: %+v", rep)
 	}
 	if got := w.remoteFiles("main")["config/rest.yaml"]; !strings.Contains(got, "!secret") {
 		t.Errorf("main/rest.yaml = %q", got)
@@ -460,8 +460,8 @@ func TestSecretBlocksEverything(t *testing.T) {
 func TestRepeatedProblemIsNotifiedOnce(t *testing.T) {
 	w := newWorld(t)
 	w.seedBox()
-	w.devPush(map[string]string{"config/automations.yaml": "- id: '1'\n  alias: desde main\n"})
-	w.edit("config/automations.yaml", "- id: '1'\n  alias: desde la UI\n")
+	w.devPush(map[string]string{"config/automations.yaml": "- id: '1'\n  alias: from main\n"})
+	w.edit("config/automations.yaml", "- id: '1'\n  alias: from the UI\n")
 
 	before := len(w.events)
 	for range 3 {
@@ -470,25 +470,25 @@ func TestRepeatedProblemIsNotifiedOnce(t *testing.T) {
 		}
 	}
 	if got := len(w.events) - before; got != 1 {
-		t.Errorf("tres ciclos con el mismo conflicto mandaron %d avisos, quería 1", got)
+		t.Errorf("three cycles with the same conflict sent %d notifications, want 1", got)
 	}
 
-	// Un conflicto distinto (otro path) sí se avisa.
-	w.devPush(map[string]string{"config/scripts.yaml": "hola:\n  sequence: [main]\n"})
-	w.edit("config/scripts.yaml", "hola:\n  sequence: [ui]\n")
+	// A different conflict (another path) is notified.
+	w.devPush(map[string]string{"config/scripts.yaml": "hello:\n  sequence: [main]\n"})
+	w.edit("config/scripts.yaml", "hello:\n  sequence: [ui]\n")
 	w.sync()
 	if got := len(w.events) - before; got != 2 {
-		t.Errorf("un conflicto nuevo tenía que avisarse: %d avisos", got)
+		t.Errorf("a new conflict should have been notified: %d notifications", got)
 	}
 
-	// Resuelto, vuelve a idle, y el mismo problema de nuevo se avisa otra vez.
-	w.devResolve(map[string]string{"config/automations.yaml": "- id: '1'\n  alias: r\n", "config/scripts.yaml": "hola:\n  sequence: [r]\n"})
+	// Once resolved it returns to idle, and the same problem is notified again.
+	w.devResolve(map[string]string{"config/automations.yaml": "- id: '1'\n  alias: r\n", "config/scripts.yaml": "hello:\n  sequence: [r]\n"})
 	if rep := w.sync(); rep.State != StateIdle {
 		t.Fatalf("= %+v", rep)
 	}
 	st, _ := LoadState(w.opts.StateDir)
 	if st.LastNotified != "" {
-		t.Error("al volver a idle se resetea")
+		t.Error("returning to idle resets it")
 	}
 }
 
@@ -502,17 +502,17 @@ func TestBrokenMountIsSuspicious(t *testing.T) {
 		t.Fatalf("= %+v", rep)
 	}
 	if w.remote("main") != before || w.remote("box") != before {
-		t.Error("no se pushea nada")
+		t.Error("nothing is pushed")
 	}
 }
 
 func TestBootstrapOnExistingMain(t *testing.T) {
 	w := newWorld(t)
-	// El repo ya existe con una config distinta de la del box.
+	// The repo already exists with a config different from the box's.
 	w.devPush(map[string]string{
-		"README.md":                 "# casa\n",
+		"README.md":                 "# home\n",
 		"config/configuration.yaml": "homeassistant:\n  name: Repo\n",
-		"config/viejo.yaml":         "v: 1\n",
+		"config/old.yaml":           "v: 1\n",
 	})
 	mainBefore := w.remote("main")
 	w.edit("config/configuration.yaml", "homeassistant:\n  name: Box\n")
@@ -523,27 +523,27 @@ func TestBootstrapOnExistingMain(t *testing.T) {
 		t.Fatalf("= %+v", rep)
 	}
 	if w.remote("main") != mainBefore {
-		t.Error("main no se toca hasta revisar")
+		t.Error("main is not touched until reviewed")
 	}
 	box := w.remoteFiles("box")
 	assertFiles(t, box, map[string]string{
-		"README.md":                 "# casa\n",
+		"README.md":                 "# home\n",
 		"config/configuration.yaml": "homeassistant:\n  name: Box\n",
 		"config/automations.yaml":   "[]\n",
 	})
 	if w.checks != 0 || w.disk()["config/configuration.yaml"] != "homeassistant:\n  name: Box\n" {
-		t.Error("el disco no se toca")
+		t.Error("the disk is not touched")
 	}
 	if rep := w.sync(); rep.State != StateBootstrapReview {
-		t.Fatalf("sigue en revisión: %+v", rep)
+		t.Fatalf("still in review: %+v", rep)
 	}
 
 	rep = w.sync(SyncOptions{AcceptBootstrap: true})
 	if rep.State != StateIdle || rep.MergeKind != merge.FastForwardMain {
-		t.Fatalf("aceptado: %+v", rep)
+		t.Fatalf("accepted: %+v", rep)
 	}
 	if w.remote("main") != w.remote("box") {
-		t.Error("main tiene que quedar igual a box")
+		t.Error("main must end up equal to box")
 	}
 }
 
@@ -554,17 +554,17 @@ func TestBootstrapResolvedByMergingLocally(t *testing.T) {
 	if rep := w.sync(); rep.State != StateBootstrapReview {
 		t.Fatalf("= %+v", rep)
 	}
-	// El usuario revisa box y lo mergea en main, quedándose con el nombre del repo.
+	// The user reviews box and merges it into main, keeping the repo's name.
 	w.devResolve(map[string]string{"config/configuration.yaml": "homeassistant:\n  name: Repo\n"})
 	rep := w.sync()
 	if rep.State != StateIdle || !rep.Applied {
 		t.Fatalf("= %+v", rep)
 	}
 	if got := w.disk()["config/configuration.yaml"]; got != "homeassistant:\n  name: Repo\n" {
-		t.Errorf("disco = %q", got)
+		t.Errorf("disk = %q", got)
 	}
 	if !rep.Restart {
-		t.Error("cambiar configuration.yaml recomienda restart")
+		t.Error("changing configuration.yaml recommends a restart")
 	}
 }
 
@@ -573,7 +573,7 @@ func TestPushRaceRetries(t *testing.T) {
 	w.seedBox()
 	w.opts.hooks.beforePush = func(attempt int) {
 		if attempt == 1 {
-			w.devPush(map[string]string{"config/scripts.yaml": "hola:\n  sequence: [colado]\n"})
+			w.devPush(map[string]string{"config/scripts.yaml": "hello:\n  sequence: [sneaked-in]\n"})
 		}
 	}
 	w.newEngine()
@@ -584,43 +584,43 @@ func TestPushRaceRetries(t *testing.T) {
 		t.Fatalf("= %+v", rep)
 	}
 	m := w.remoteFiles("main")
-	if m["config/scripts.yaml"] != "hola:\n  sequence: [colado]\n" || m["config/automations.yaml"] != "- id: '1'\n  alias: box\n" {
-		t.Errorf("main perdió algo: %v", m)
+	if m["config/scripts.yaml"] != "hello:\n  sequence: [sneaked-in]\n" || m["config/automations.yaml"] != "- id: '1'\n  alias: box\n" {
+		t.Errorf("main lost something: %v", m)
 	}
-	if w.disk()["config/scripts.yaml"] != "hola:\n  sequence: [colado]\n" {
-		t.Error("el cambio colado tiene que llegar al box")
+	if w.disk()["config/scripts.yaml"] != "hello:\n  sequence: [sneaked-in]\n" {
+		t.Error("the sneaked-in change must reach the box")
 	}
 }
 
 func TestEditDuringApplyRetries(t *testing.T) {
 	w := newWorld(t)
 	w.seedBox()
-	w.devPush(map[string]string{"config/scripts.yaml": "hola:\n  sequence: [main]\n"})
+	w.devPush(map[string]string{"config/scripts.yaml": "hello:\n  sequence: [main]\n"})
 	w.opts.hooks.beforeApply = func(attempt int) {
 		if attempt == 1 {
-			w.edit("config/scripts.yaml", "hola:\n  sequence: [editado en la UI]\n")
+			w.edit("config/scripts.yaml", "hello:\n  sequence: [edited in the UI]\n")
 		}
 	}
 	w.newEngine()
 	rep := w.sync()
-	// El segundo intento ve la edición, que choca con main: conflicto, sin
-	// haber pisado nada.
+	// The second attempt sees the edit, which clashes with main: conflict,
+	// without having overwritten anything.
 	if rep.Attempts != 2 || rep.State != StateConflict {
 		t.Fatalf("= %+v", rep)
 	}
-	if got := w.disk()["config/scripts.yaml"]; got != "hola:\n  sequence: [editado en la UI]\n" {
-		t.Errorf("se pisó la edición: %q", got)
+	if got := w.disk()["config/scripts.yaml"]; got != "hello:\n  sequence: [edited in the UI]\n" {
+		t.Errorf("the edit was overwritten: %q", got)
 	}
 }
 
 func TestCrashAfterApplyIsRecoveredOnNextSync(t *testing.T) {
 	w := newWorld(t)
 	w.seedBox()
-	w.devPush(map[string]string{"config/scripts.yaml": "hola:\n  sequence: [main]\n"})
-	w.opts.hooks.afterApply = func() error { return errors.New("se cortó la luz") }
+	w.devPush(map[string]string{"config/scripts.yaml": "hello:\n  sequence: [main]\n"})
+	w.opts.hooks.afterApply = func() error { return errors.New("power outage") }
 	w.newEngine()
 	if _, err := w.eng.Sync(ctx, SyncOptions{}); err == nil {
-		t.Fatal("quería el corte simulado")
+		t.Fatal("wanted the simulated crash")
 	}
 	w.opts.hooks.afterApply = nil
 	w.newEngine()
@@ -628,8 +628,8 @@ func TestCrashAfterApplyIsRecoveredOnNextSync(t *testing.T) {
 	if rep.Recovered != "at_target" || rep.State != StateIdle {
 		t.Fatalf("= %+v", rep)
 	}
-	if w.remote("box") != w.remote("main") || w.disk()["config/scripts.yaml"] != "hola:\n  sequence: [main]\n" {
-		t.Error("después de recuperar, box tiene que quedar en main")
+	if w.remote("box") != w.remote("main") || w.disk()["config/scripts.yaml"] != "hello:\n  sequence: [main]\n" {
+		t.Error("after recovering, box must end up at main")
 	}
 }
 
@@ -638,22 +638,22 @@ func TestPushOnlyNeverAppliesMain(t *testing.T) {
 	w.edit("config/automations.yaml", "[]\n")
 	w.sync()
 	if w.remote("box") == "" || w.remote("main") != "" {
-		t.Fatalf("push_only solo publica box: main=%s box=%s", w.remote("main"), w.remote("box"))
+		t.Fatalf("push_only only publishes box: main=%s box=%s", w.remote("main"), w.remote("box"))
 	}
-	w.devPush(map[string]string{"config/automations.yaml": "- desde main\n"})
+	w.devPush(map[string]string{"config/automations.yaml": "- from main\n"})
 	w.edit("config/scripts.yaml", "a: {}\n")
 	if rep := w.sync(); rep.State != StateIdle || rep.Applied {
 		t.Fatalf("= %+v", rep)
 	}
 	if got := w.disk()["config/automations.yaml"]; got != "[]\n" {
-		t.Errorf("push_only nunca aplica main: %q", got)
+		t.Errorf("push_only never applies main: %q", got)
 	}
 }
 
 func TestDryRunChangesNothing(t *testing.T) {
 	w := newWorld(t)
 	w.seedBox()
-	w.devPush(map[string]string{"config/scripts.yaml": "hola:\n  sequence: [main]\n"})
+	w.devPush(map[string]string{"config/scripts.yaml": "hello:\n  sequence: [main]\n"})
 	w.edit("config/automations.yaml", "- id: '1'\n  alias: local\n")
 	main, box, disk := w.remote("main"), w.remote("box"), w.disk()
 	stBefore, _ := os.ReadFile(filepath.Join(w.opts.StateDir, "state.json"))
@@ -664,7 +664,7 @@ func TestDryRunChangesNothing(t *testing.T) {
 	}
 	stAfter, _ := os.ReadFile(filepath.Join(w.opts.StateDir, "state.json"))
 	if w.remote("main") != main || w.remote("box") != box || !slices.Equal(stBefore, stAfter) {
-		t.Error("dry-run no puede mover refs ni el estado")
+		t.Error("dry-run must not move refs or the state")
 	}
 	assertFiles(t, w.disk(), disk)
 }
@@ -677,7 +677,7 @@ func TestConcurrentSyncIsBusy(t *testing.T) {
 	}
 	defer unlock()
 	if _, err := w.eng.Sync(ctx, SyncOptions{}); !errors.Is(err, ErrBusy) {
-		t.Errorf("quería ErrBusy, dio %v", err)
+		t.Errorf("want ErrBusy, got %v", err)
 	}
 }
 
@@ -689,24 +689,24 @@ func TestSomeonePushedToBox(t *testing.T) {
 	if err := w.dev.Push(ctx, w.url, c+":refs/heads/box"); err != nil {
 		t.Fatal(err)
 	}
-	// Alguien (un humano u otro box mal configurado) pusheó a box: el remoto
-	// tiene un commit que la rama local no tiene, y el motor no puede seguir
-	// sin pisarlo.
+	// Someone (a human or another misconfigured box) pushed to box: the remote
+	// has a commit the local branch lacks, and the engine cannot continue
+	// without overwriting it.
 	w.edit("config/automations.yaml", "[]\n")
 	if _, err := w.eng.Sync(ctx, SyncOptions{}); !errors.Is(err, ErrBoxDiverged) {
-		t.Errorf("quería ErrBoxDiverged, dio %v", err)
+		t.Errorf("want ErrBoxDiverged, got %v", err)
 	}
 	if got := w.remote("box"); got != c {
-		t.Error("el commit ajeno en box no se puede pisar")
+		t.Error("the foreign commit on box must not be overwritten")
 	}
 	st, _ := LoadState(w.opts.StateDir)
 	if st.State != StateError || !strings.Contains(st.LastError, "box") {
-		t.Errorf("quería error por box divergente, estado %s: %s", st.State, st.LastError)
+		t.Errorf("want an error for diverged box, state %s: %s", st.State, st.LastError)
 	}
 }
 
-// TestCycleAgainstSupervisorAPI corre un ciclo con el cliente real del
-// Supervisor contra un Core falso (httptest) y verifica las llamadas.
+// TestCycleAgainstSupervisorAPI runs a cycle with the real Supervisor client
+// against a fake Core (httptest) and checks the calls.
 func TestCycleAgainstSupervisorAPI(t *testing.T) {
 	var mu sync.Mutex
 	var calls []string
@@ -735,19 +735,19 @@ func TestCycleAgainstSupervisorAPI(t *testing.T) {
 	calls = nil
 	mu.Unlock()
 
-	w.devPush(map[string]string{"config/scripts.yaml": "hola:\n  sequence: [main]\n"})
+	w.devPush(map[string]string{"config/scripts.yaml": "hello:\n  sequence: [main]\n"})
 	if rep := w.sync(); rep.State != StateIdle || !rep.Reloaded {
 		t.Fatalf("= %+v", rep)
 	}
 	want := []string{
-		"/core/api/config/core/check_config", // warnings de base
+		"/core/api/config/core/check_config", // baseline warnings
 		"/core/api/config/core/check_config",
 		"/core/api/services/homeassistant/reload_all",
 		"/core/api/events/homeassistant_config_sync",
 		"/core/api/services/persistent_notification/dismiss",
 	}
 	if strings.Join(calls, "|") != strings.Join(want, "|") {
-		t.Errorf("llamadas a HA = %v\nquería %v", calls, want)
+		t.Errorf("calls to HA = %v\nwant %v", calls, want)
 	}
 }
 
@@ -771,15 +771,15 @@ func TestInitIsIdempotentAndWritesKeys(t *testing.T) {
 	}
 	res, err := w.eng.Init(ctx)
 	if err != nil || res.Created || res.DeployKey != pub1 {
-		t.Errorf("init de nuevo no puede rotar la clave: %+v %v", res, err)
+		t.Errorf("a second init must not rotate the key: %+v %v", res, err)
 	}
 	fi, err := os.Stat(filepath.Join(w.opts.StateDir, "ssh", "id_ed25519"))
 	if err != nil || fi.Mode().Perm() != 0o600 {
-		t.Errorf("permisos de la clave privada: %v %v", fi.Mode(), err)
+		t.Errorf("private key permissions: %v %v", fi.Mode(), err)
 	}
 	kh, _ := os.ReadFile(filepath.Join(w.opts.StateDir, "ssh", "known_hosts"))
 	if !strings.Contains(string(kh), "github.com ssh-ed25519 ") {
-		t.Error("known_hosts sin GitHub")
+		t.Error("known_hosts without GitHub")
 	}
 	tok, err := APIToken(w.opts.StateDir)
 	if err != nil || len(tok) != 64 {
@@ -789,6 +789,6 @@ func TestInitIsIdempotentAndWritesKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	if tok2, _ := APIToken(w.opts.StateDir); tok2 != tok {
-		t.Error("init de nuevo no puede rotar el token")
+		t.Error("a second init must not rotate the token")
 	}
 }

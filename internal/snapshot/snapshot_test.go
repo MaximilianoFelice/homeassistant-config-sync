@@ -21,7 +21,7 @@ const boxRef = "refs/heads/box"
 
 var ctx = context.Background()
 
-// env es un box de mentira + el repo bare del motor, todo en un TempDir.
+// env is a fake box plus the engine's bare repo, all in a TempDir.
 type env struct {
 	t    *testing.T
 	ha   string
@@ -79,7 +79,7 @@ func (e *env) head() string {
 	return oid
 }
 
-// seed commitea un árbol arbitrario en box, como si viniera de main.
+// seed commits an arbitrary tree on box, as if it came from main.
 func (e *env) seed(files map[string]string) string {
 	e.t.Helper()
 	var ups []gitx.IndexUpdate
@@ -108,11 +108,11 @@ func (e *env) seed(files map[string]string) string {
 func assertTree(t *testing.T, got, want map[string]string) {
 	t.Helper()
 	if len(got) != len(want) {
-		t.Errorf("árbol con %d archivos, quería %d:\n got: %v\nwant: %v", len(got), len(want), got, want)
+		t.Errorf("tree with %d files, want %d:\n got: %v\nwant: %v", len(got), len(want), got, want)
 	}
 	for p, c := range want {
 		if got[p] != c {
-			t.Errorf("%s = %q, quería %q", p, got[p], c)
+			t.Errorf("%s = %q, want %q", p, got[p], c)
 		}
 	}
 }
@@ -135,14 +135,14 @@ func TestFirstSnapshotIsARootCommitWithOnlyManagedFiles(t *testing.T) {
 
 	res := e.take()
 	if res.Parent != "" || res.Commit == "" {
-		t.Fatalf("quería un commit raíz, dio %+v", res)
+		t.Fatalf("want a root commit, got %+v", res)
 	}
 	assertTree(t, e.tree(), map[string]string{
 		"config/configuration.yaml": "homeassistant:\n",
 		"config/automations.yaml":   "[]\n",
 	})
 	if got := kinds(res.Changes); got != "A config/automations.yaml, A config/configuration.yaml" {
-		t.Errorf("cambios = %s", got)
+		t.Errorf("changes = %s", got)
 	}
 }
 
@@ -152,16 +152,16 @@ func TestSnapshotIsIdempotent(t *testing.T) {
 	first := e.take()
 	second := e.take()
 	if second.Commit != "" || len(second.Changes) != 0 {
-		t.Errorf("un segundo snapshot sin cambios no debería commitear: %+v", second)
+		t.Errorf("a second snapshot without changes should not commit: %+v", second)
 	}
 	if e.head() != first.Commit {
-		t.Error("box se movió sin cambios")
+		t.Error("box moved without changes")
 	}
 
-	// También con la cache de stat del primero.
+	// Also with the first one's stat cache.
 	e.opts.Cache = first.Cache
 	if third := e.take(); third.Commit != "" {
-		t.Errorf("con cache tampoco: %+v", third)
+		t.Errorf("not with the cache either: %+v", third)
 	}
 }
 
@@ -174,43 +174,43 @@ func TestSnapshotAddModifyDelete(t *testing.T) {
 
 	e.write("automations.yaml", "- id: '1'\n")
 	e.rm("scenes.yaml")
-	e.write("packages/nuevo.yaml", "x:\n")
+	e.write("packages/new.yaml", "x:\n")
 	res := e.take()
 
 	if res.Parent != first.Commit {
-		t.Errorf("padre = %s, quería %s", res.Parent, first.Commit)
+		t.Errorf("parent = %s, want %s", res.Parent, first.Commit)
 	}
-	if got := kinds(res.Changes); got != "M config/automations.yaml, A config/packages/nuevo.yaml, D config/scenes.yaml" {
-		t.Errorf("cambios = %s", got)
+	if got := kinds(res.Changes); got != "M config/automations.yaml, A config/packages/new.yaml, D config/scenes.yaml" {
+		t.Errorf("changes = %s", got)
 	}
 	assertTree(t, e.tree(), map[string]string{
-		"config/automations.yaml":    "- id: '1'\n",
-		"config/scripts.yaml":        "a:\n",
-		"config/packages/nuevo.yaml": "x:\n",
+		"config/automations.yaml":  "- id: '1'\n",
+		"config/scripts.yaml":      "a:\n",
+		"config/packages/new.yaml": "x:\n",
 	})
 }
 
 func TestSnapshotPreservesWhatTheRepoOwns(t *testing.T) {
 	e := newEnv(t)
 	e.seed(map[string]string{
-		"README.md":                 "# mi casa\n",
+		"README.md":                 "# my home\n",
 		".github/workflows/ci.yaml": "on: push\n",
-		"config/notas.txt":          "no gestionado\n",
-		"config/automations.yaml":   "viejo\n",
-		"config/borrado.yaml":       "chau\n",
+		"config/notes.txt":          "unmanaged\n",
+		"config/automations.yaml":   "old\n",
+		"config/deleted.yaml":       "bye\n",
 	})
-	e.write("automations.yaml", "nuevo\n")
+	e.write("automations.yaml", "new\n")
 
 	res := e.take()
-	if got := kinds(res.Changes); got != "D config/borrado.yaml, M config/automations.yaml" &&
-		got != "M config/automations.yaml, D config/borrado.yaml" {
-		t.Errorf("cambios = %s", got)
+	if got := kinds(res.Changes); got != "D config/deleted.yaml, M config/automations.yaml" &&
+		got != "M config/automations.yaml, D config/deleted.yaml" {
+		t.Errorf("changes = %s", got)
 	}
 	assertTree(t, e.tree(), map[string]string{
-		"README.md":                 "# mi casa\n",
+		"README.md":                 "# my home\n",
 		".github/workflows/ci.yaml": "on: push\n",
-		"config/notas.txt":          "no gestionado\n",
-		"config/automations.yaml":   "nuevo\n",
+		"config/notes.txt":          "unmanaged\n",
+		"config/automations.yaml":   "new\n",
 	})
 }
 
@@ -219,47 +219,47 @@ func TestSnapshotFileBecomesDirectory(t *testing.T) {
 	e.write("automations.yaml", "[]\n")
 	e.take()
 	e.rm("automations.yaml")
-	e.write("automations.yaml/cocina.yaml", "- id: c\n")
+	e.write("automations.yaml/kitchen.yaml", "- id: c\n")
 	e.take()
-	assertTree(t, e.tree(), map[string]string{"config/automations.yaml/cocina.yaml": "- id: c\n"})
+	assertTree(t, e.tree(), map[string]string{"config/automations.yaml/kitchen.yaml": "- id: c\n"})
 }
 
 func TestSnapshotTracksExecutableBit(t *testing.T) {
 	e := newEnv(t)
-	p := filepath.Join(e.ha, "python_scripts/hola.py")
+	p := filepath.Join(e.ha, "python_scripts/hello.py")
 	testkit.WriteFileMode(t, p, "print(1)\n", 0o644)
 	e.take()
 	if err := os.Chmod(p, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	res := e.take()
-	if got := kinds(res.Changes); got != "M config/python_scripts/hola.py" {
-		t.Errorf("cambios = %s", got)
+	if got := kinds(res.Changes); got != "M config/python_scripts/hello.py" {
+		t.Errorf("changes = %s", got)
 	}
-	if m := testkit.Modes(t, e.repo, boxRef)["config/python_scripts/hola.py"]; m != "100755" {
-		t.Errorf("modo = %s", m)
+	if m := testkit.Modes(t, e.repo, boxRef)["config/python_scripts/hello.py"]; m != "100755" {
+		t.Errorf("mode = %s", m)
 	}
 }
 
 func TestSkippedFilesKeepTheirPreviousVersion(t *testing.T) {
 	e := newEnv(t)
-	e.write("grande.yaml", "chico\n")
-	e.write("binario.yaml", "texto\n")
-	e.write("link.yaml", "archivo\n")
+	e.write("large.yaml", "small\n")
+	e.write("binary.yaml", "text\n")
+	e.write("link.yaml", "file\n")
 	e.take()
 
-	e.write("grande.yaml", strings.Repeat("x", 2048))
-	e.write("binario.yaml", "a\x00b")
+	e.write("large.yaml", strings.Repeat("x", 2048))
+	e.write("binary.yaml", "a\x00b")
 	e.rm("link.yaml")
-	if err := os.Symlink(filepath.Join(e.ha, "grande.yaml"), filepath.Join(e.ha, "link.yaml")); err != nil {
+	if err := os.Symlink(filepath.Join(e.ha, "large.yaml"), filepath.Join(e.ha, "link.yaml")); err != nil {
 		t.Fatal(err)
 	}
 	res := e.take()
 	if res.Commit != "" {
-		t.Errorf("saltear no es borrar ni modificar; cambios = %s", kinds(res.Changes))
+		t.Errorf("skipping is neither deleting nor modifying; changes = %s", kinds(res.Changes))
 	}
 	if len(res.Skipped) != 3 {
-		t.Errorf("salteados = %+v", res.Skipped)
+		t.Errorf("skipped = %+v", res.Skipped)
 	}
 }
 
@@ -271,26 +271,26 @@ func TestMissingRootIsSuspicious(t *testing.T) {
 	e.rm("")
 	_, err := snapshot.Take(ctx, e.repo, e.opts)
 	if !errors.Is(err, snapshot.ErrSuspicious) {
-		t.Fatalf("quería ErrSuspicious, dio %v", err)
+		t.Fatalf("want ErrSuspicious, got %v", err)
 	}
 	if e.head() != before {
-		t.Error("box no debería moverse")
+		t.Error("box should not move")
 	}
 }
 
 func TestEmptyRootIsSuspicious(t *testing.T) {
 	e := newEnv(t)
 	e.write("automations.yaml", "[]\n")
-	e.write("notas.txt", "esto no es gestionado\n")
+	e.write("notes.txt", "this is not managed\n")
 	before := e.take().Commit
 
 	e.rm("automations.yaml")
 	_, err := snapshot.Take(ctx, e.repo, e.opts)
 	if !errors.Is(err, snapshot.ErrSuspicious) {
-		t.Fatalf("quería ErrSuspicious (mount vacío), dio %v", err)
+		t.Fatalf("want ErrSuspicious (empty mount), got %v", err)
 	}
 	if e.head() != before {
-		t.Error("box no debería moverse")
+		t.Error("box should not move")
 	}
 }
 
@@ -301,12 +301,12 @@ func TestMassDeleteGuard(t *testing.T) {
 		deleted int
 		blocked bool
 	}{
-		{"config chica, borro 1 de 4", 4, 1, false},
-		{"borro 4 de 10: 40% pero menos de 5", 10, 4, false},
-		{"borro 5 de 10: 50% y al menos 5", 10, 5, true},
-		{"borro 5 de 40: 12.5%", 40, 5, false},
-		{"borro 26 de 200: más de 25", 200, 26, true},
-		{"borro 25 de 200: justo 25", 200, 25, false},
+		{"small config, delete 1 of 4", 4, 1, false},
+		{"delete 4 of 10: 40% but fewer than 5", 10, 4, false},
+		{"delete 5 of 10: 50% and at least 5", 10, 5, true},
+		{"delete 5 of 40: 12.5%", 40, 5, false},
+		{"delete 26 of 200: more than 25", 200, 26, true},
+		{"delete 25 of 200: exactly 25", 200, 25, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -321,20 +321,20 @@ func TestMassDeleteGuard(t *testing.T) {
 			res, err := snapshot.Take(ctx, e.repo, e.opts)
 			if tt.blocked {
 				if !errors.Is(err, snapshot.ErrMassDelete) {
-					t.Fatalf("quería ErrMassDelete, dio %v", err)
+					t.Fatalf("want ErrMassDelete, got %v", err)
 				}
 				if e.head() != before {
-					t.Error("box no debería moverse")
+					t.Error("box should not move")
 				}
-				// Con confirmación explícita pasa.
+				// With explicit confirmation it goes through.
 				e.opts.AllowMassDelete = true
 				if res := e.take(); res.Commit == "" {
-					t.Error("con AllowMassDelete debería commitear")
+					t.Error("with AllowMassDelete it should commit")
 				}
 				return
 			}
 			if err != nil || res.Commit == "" {
-				t.Fatalf("no quería bloqueo: %v %+v", err, res)
+				t.Fatalf("want no block: %v %+v", err, res)
 			}
 		})
 	}
@@ -345,9 +345,9 @@ func TestBeforeCommitErrorWritesNothing(t *testing.T) {
 	e.write("automations.yaml", "[]\n")
 	before := e.take().Commit
 
-	secret := "api_key: sk-esto-es-un-secreto\n"
+	secret := "api_key: sk-this-is-a-secret\n"
 	e.write("rest.yaml", secret)
-	blocked := errors.New("secreto encontrado")
+	blocked := errors.New("secret found")
 	var seen map[string][]byte
 	e.opts.BeforeCommit = func(_ context.Context, cs []snapshot.Change, contents map[string][]byte) error {
 		seen = contents
@@ -355,18 +355,18 @@ func TestBeforeCommitErrorWritesNothing(t *testing.T) {
 	}
 	_, err := snapshot.Take(ctx, e.repo, e.opts)
 	if !errors.Is(err, blocked) {
-		t.Fatalf("quería el error del hook, dio %v", err)
+		t.Fatalf("want the hook's error, got %v", err)
 	}
 	if string(seen["config/rest.yaml"]) != secret {
-		t.Errorf("el hook no recibió el contenido: %q", seen)
+		t.Errorf("the hook did not receive the content: %q", seen)
 	}
 	if e.head() != before {
-		t.Error("box no debería moverse")
+		t.Error("box should not move")
 	}
-	// Ni siquiera el blob quedó escrito en el repo local.
+	// Not even the blob was written to the local repo.
 	oid := gitBlobOID(t, secret)
 	if ok, err := e.repo.HasObject(ctx, oid); err != nil || ok {
-		t.Errorf("el blob del secreto quedó en el repo (%v, %v)", ok, err)
+		t.Errorf("the secret's blob ended up in the repo (%v, %v)", ok, err)
 	}
 }
 
@@ -389,7 +389,7 @@ func TestSnapshotUsesCacheButStillSeesEdits(t *testing.T) {
 		t.Fatal(err)
 	}
 	if res := e.take(); kinds(res.Changes) != "M config/automations.yaml" {
-		t.Errorf("la cache escondió una edición: %s", kinds(res.Changes))
+		t.Errorf("the cache hid an edit: %s", kinds(res.Changes))
 	}
 	assertTree(t, e.tree(), map[string]string{"config/automations.yaml": "bbbb\n"})
 }
@@ -397,20 +397,20 @@ func TestSnapshotUsesCacheButStillSeesEdits(t *testing.T) {
 func TestMessage(t *testing.T) {
 	one := snapshot.Message([]snapshot.Change{{Path: "config/a.yaml", Kind: snapshot.Modified}})
 	if !strings.HasPrefix(one, "box: config/a.yaml\n\nM config/a.yaml\n") {
-		t.Errorf("mensaje = %q", one)
+		t.Errorf("message = %q", one)
 	}
 	var many []snapshot.Change
 	for i := range 105 {
 		many = append(many, snapshot.Change{Path: fmt.Sprintf("config/%d.yaml", i), Kind: snapshot.Added})
 	}
 	msg := snapshot.Message(many)
-	if !strings.HasPrefix(msg, "box: 105 cambios\n\n") || !strings.Contains(msg, "… y 5 más") {
-		t.Errorf("mensaje = %q", msg)
+	if !strings.HasPrefix(msg, "box: 105 changes\n\n") || !strings.Contains(msg, "… and 5 more") {
+		t.Errorf("message = %q", msg)
 	}
 }
 
-// gitBlobOID calcula el OID con git en un repo descartable, para no depender
-// de scan.BlobOID (el código bajo test).
+// gitBlobOID computes the OID with git in a throwaway repo, so it does not
+// depend on scan.BlobOID (the code under test).
 func gitBlobOID(t *testing.T, s string) string {
 	t.Helper()
 	oid, err := testkit.NewBareRepo(t).WriteBlob(ctx, []byte(s))

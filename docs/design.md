@@ -1,66 +1,66 @@
-# homeassistant-config-sync: diseño
+# homeassistant-config-sync: design
 
-> Estado: borrador para revisión, 2026-11-11. Nada de esto está publicado todavía.
+> Status: draft for review, 2026-11-11. None of this is published yet.
 
-## 1. Objetivo
+## 1. Goal
 
-Una app (add-on) de Home Assistant OS que mantiene la configuración del box sincronizada **en las dos direcciones** con un repo git:
+A Home Assistant OS app (add-on) that keeps the box configuration synced **in both directions** with a git repo:
 
-- Lo que cambia en el box (ediciones desde la UI de HA, el editor de archivos, otras apps) termina commiteado y pusheado.
-- Lo que se pushea a `main` desde otro lado (local, GitHub) termina aplicado en el box, **solo si pasa el check de config de HA**.
-- Si las dos puntas tocan lo mismo de forma incompatible, el sync **se frena** y avisa. Nunca se pisa trabajo de nadie en silencio.
+- What changes on the box (edits from the HA UI, the file editor, other apps) ends up committed and pushed.
+- What is pushed to `main` from elsewhere (local machine, GitHub) ends up applied on the box, **only if it passes the HA config check**.
+- If both ends touch the same thing in incompatible ways, the sync **stops** and reports it. Nobody's work is ever silently overwritten.
 
-Es open source desde el día uno y se distribuye como repo de apps de HA (no por HACS, que no distribuye apps). Una integración HACS opcional llega después, como capa de presentación.
+It is open source from day one and is distributed as an HA app repository (not through HACS, which does not distribute apps). An optional HACS integration comes later, as a presentation layer.
 
-### No-objetivos
+### Non-goals
 
-- No es un sistema de backups: no versiona `.storage` completo, ni DBs, ni media. Para eso están los backups de HA.
-- No reinicia Home Assistant por su cuenta (salvo opt-in explícito).
-- No gestiona secretos: `secrets.yaml` nunca sale del box.
-- No resuelve conflictos automáticamente en v0/v1.
+- It is not a backup system: it does not version all of `.storage`, databases, or media. HA backups cover that.
+- It does not restart Home Assistant on its own (unless explicitly opted in).
+- It does not manage secrets: `secrets.yaml` never leaves the box.
+- It does not resolve conflicts automatically in v0/v1.
 
-## 2. Glosario
+## 2. Glossary
 
-| Término | Significado |
+| Term | Meaning |
 |---|---|
-| **box** | La instancia de HA OS donde corre la app. |
-| **disco vivo** | Los directorios montados en la app: `/homeassistant` y `/app_configs`. |
-| **path gestionado** | Un archivo del disco vivo que entra por la whitelist de su mapeo. Solo esos se leen, escriben o borran. |
-| **rama `box`** | Rama que refleja el estado gestionado del box. La escribe solo el motor. |
-| **rama `main`** | Rama de trabajo humano. La escriben los usuarios; el motor solo la avanza con fast-forward. |
-| **ciclo** | Una ejecución completa del sync (manual o programada). |
-| **motor** | El binario que implementa el ciclo (CLI en v0, proceso de la app desde v1). |
+| **box** | The HA OS instance where the app runs. |
+| **live disk** | The directories mounted into the app: `/homeassistant` and `/app_configs`. |
+| **managed path** | A file on the live disk that passes its mapping's whitelist. Only these are read, written, or deleted. |
+| **`box` branch** | Branch that reflects the managed state of the box. Only the engine writes it. |
+| **`main` branch** | Branch for human work. Users write it; the engine only advances it by fast-forward. |
+| **cycle** | One complete sync run (manual or scheduled). |
+| **engine** | The binary that implements the cycle (a CLI in v0, the app process from v1). |
 
-## 3. Arquitectura
+## 3. Architecture
 
 ```
-                 GitHub (git@github.com:owner/repo.git, deploy key SSH)
+                 GitHub (git@github.com:owner/repo.git, SSH deploy key)
                  ┌──────────────────────────────────────────────┐
-                 │  main  ◄── pushes humanos (local, web)          │
-                 │  box   ◄── solo el motor                      │
+                 │  main  ◄── human pushes (local, web)          │
+                 │  box   ◄── engine only                        │
                  └───────────────▲──────────────────────────────┘
                                  │ fetch / push --atomic (SSH)
 ┌──────────────── App homeassistant-config-sync ─────────────────────────┐
 │                                                                        │
 │  scheduler ─┐                                                          │
-│  stdin ─────┼──► motor (ciclo) ──► git CLI (repo bare en /data/repo.git)│
-│  API HTTP ──┘        │                                                 │
-│                      ├──► escaneo / apply ──► /homeassistant (rw)      │
-│                      │                   └──► /app_configs (rw)      │
+│  stdin ─────┼──► engine (cycle) ──► git CLI (bare repo at /data/repo.git)│
+│  HTTP API ──┘        │                                                 │
+│                      ├──► scan / apply ──► /homeassistant (rw)         │
+│                      │                └──► /app_configs (rw)           │
 │                      └──► HA Core API (http://supervisor/core/api,     │
 │                            SUPERVISOR_TOKEN): check_config, reloads,   │
-│                            notificaciones, eventos                     │
+│                            notifications, events                       │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
-Decisiones de fondo:
+Core decisions:
 
-- **El repo es bare y vive en `/data/repo.git`.** El disco vivo no es un working tree de git: el motor arma árboles con plumbing (`hash-object`, índice temporal vía `GIT_INDEX_FILE`, `write-tree`, `commit-tree`, `merge-tree --write-tree`) y escribe en disco solo los paths gestionados. Así un `.git` nunca aparece dentro de `/homeassistant`, y un monorepo puede mapear a varios directorios del box.
-- **Se usa el git CLI, no una librería.** El merge de 3 vías de git (`merge-tree --write-tree`, git ≥ 2.38) es la parte más delicada y no conviene reimplementarla.
+- **The repo is bare and lives at `/data/repo.git`.** The live disk is not a git working tree: the engine builds trees with plumbing (`hash-object`, a temporary index via `GIT_INDEX_FILE`, `write-tree`, `commit-tree`, `merge-tree --write-tree`) and writes only managed paths to disk. This way a `.git` never appears inside `/homeassistant`, and a monorepo can map to several directories on the box.
+- **The git CLI is used, not a library.** git's 3-way merge (`merge-tree --write-tree`, git ≥ 2.38) is the most delicate part and is not worth reimplementing.
 
-## 4. Mounts y layout del repo
+## 4. Mounts and repo layout
 
-### Mounts de la app
+### App mounts
 
 ```yaml
 map:
@@ -70,15 +70,15 @@ map:
     read_only: false
 ```
 
-El Supervisor 2026.11 renombró los "add-ons" a "apps": `all_addon_configs` (que montaba en `/addon_configs`) quedó como nombre heredado, con un warning en el log. Se usa `all_app_configs`, verificado con el Supervisor 2026.11.0 en Docker.
+Supervisor 2026.11 renamed "add-ons" to "apps": `all_addon_configs` (which mounted at `/addon_configs`) became a legacy name that logs a warning. `all_app_configs` is used, verified with Supervisor 2026.11.0 in Docker.
 
-`/data` (privado de la app) guarda el estado del motor; no hace falta mapearlo.
+`/data` (private to the app) holds the engine state; it does not need to be mapped.
 
-### Monorepo con mapeo configurable
+### Monorepo with configurable mapping
 
-Por defecto:
+Default:
 
-| Prefijo en el repo | Directorio en el box |
+| Repo prefix | Box directory |
 |---|---|
 | `config/` | `/homeassistant` |
 | `app_configs/` | `/app_configs` |
@@ -87,51 +87,51 @@ Por defecto:
 mappings:
   - repo: config
     box: /homeassistant
-    include: [...]      # ver §5
+    include: [...]      # see §5
     push_only: [...]
     exclude: [...]
   - repo: app_configs
     box: /app_configs
-    include: []         # vacío por defecto: hay que elegir apps explícitamente
+    include: []         # empty by default: apps must be chosen explicitly
     push_only: []
     exclude: []
 ```
 
-Reglas:
+Rules:
 
-- Todo lo que está en el repo **fuera** de un prefijo mapeado (README, `.github/`, docs, `.gitattributes`) es del repo: el motor lo preserva tal cual en sus commits y nunca lo baja al box.
-- Un path dentro de un prefijo mapeado que **no** entra por la whitelist se ignora en las dos direcciones y se reporta como "no gestionado".
-- Se recomienda `* -text` en `.gitattributes` del repo para que nadie reescriba fines de línea al clonar en Windows. El motor escribe bytes tal cual.
+- Everything in the repo **outside** a mapped prefix (README, `.github/`, docs, `.gitattributes`) belongs to the repo: the engine keeps it as is in its commits and never brings it down to the box.
+- A path inside a mapped prefix that does **not** pass the whitelist is ignored in both directions and reported as "unmanaged".
+- `* -text` in the repo's `.gitattributes` is recommended so nobody rewrites line endings when cloning on Windows. The engine writes bytes as is.
 
-## 5. Whitelist de paths
+## 5. Path whitelist
 
-La whitelist vive **del lado del box** (opciones de la app), nunca en el repo. Si viviera en el repo, cualquiera con permiso de push podría ampliar la whitelist y sacar archivos del box hacia git: eso sería escalar de "escritor del repo" a "lector del box".
+The whitelist lives **on the box side** (app options), never in the repo. If it lived in the repo, anyone with push access could widen the whitelist and pull files out of the box into git: that would escalate from "repo writer" to "box reader".
 
-### Semántica
+### Semantics
 
-Un path es gestionado si y solo si:
+A path is managed if and only if:
 
-1. está bajo el `box` de un mapeo,
-2. matchea algún glob de `include` o de `push_only` (sintaxis doublestar: `*`, `**`, `?`, `[...]`; relativos a la raíz del mapeo),
-3. no matchea ningún glob de `exclude`,
-4. no matchea la **denylist dura**,
-5. no es symlink, socket ni dispositivo (los symlinks se ignoran, nunca se siguen),
-6. pesa menos que `max_file_size_kb` (default 1024) y no parece binario (byte NUL en los primeros 8 KiB).
+1. it is under a mapping's `box`,
+2. it matches some `include` or `push_only` glob (doublestar syntax: `*`, `**`, `?`, `[...]`; relative to the mapping root),
+3. it matches no `exclude` glob,
+4. it does not match the **hard denylist**,
+5. it is not a symlink, socket, or device (symlinks are ignored, never followed),
+6. it is smaller than `max_file_size_kb` (default 1024) and does not look binary (NUL byte in the first 8 KiB).
 
-Los puntos 5 y 6 producen avisos en "pendientes/ignorados", no errores.
+Points 5 and 6 produce notices under "pending/ignored", not errors.
 
-La dirección sale de la lista que matchea:
+The direction comes from the list that matches:
 
-- `include`: se sincroniza en las dos direcciones.
-- `push_only`: solo box → repo. Lo que llegue desde `main` para ese path se ignora y se reporta como "cambio entrante no aplicable". Si un path matchea las dos listas, gana `push_only`.
+- `include`: synced in both directions.
+- `push_only`: box → repo only. Anything arriving from `main` for that path is ignored and reported as "incoming change not applicable". If a path matches both lists, `push_only` wins.
 
-Son tres listas de strings (y no reglas con un campo de dirección) para que el esquema de opciones del Supervisor las pueda validar.
+They are three lists of strings (rather than rules with a direction field) so the Supervisor options schema can validate them.
 
-Además, todo path que llega desde el repo tiene que ser relativo y limpio: sin `..`, `.`, componentes vacíos, barras invertidas, bytes de control ni componentes `.git`. Si no, se descarta como `invalid_path` antes de mirar la whitelist. Es la barrera contra un `main` que intente escribir fuera del mapeo.
+In addition, every path coming from the repo must be relative and clean: no `..`, `.`, empty components, backslashes, control bytes, or `.git` components. Otherwise it is dropped as `invalid_path` before the whitelist is checked. This is the barrier against a `main` that tries to write outside the mapping.
 
-### Denylist dura (no se puede desactivar)
+### Hard denylist (cannot be disabled)
 
-Se evalúa en cualquier nivel de profundidad y sin distinguir mayúsculas (`Secrets.YAML` también cae):
+It applies at any depth and is case-insensitive (`Secrets.YAML` is caught too):
 
 ```
 **/secrets.yaml  **/secrets.yml
@@ -142,9 +142,9 @@ Se evalúa en cualquier nivel de profundidad y sin distinguir mayúsculas (`Secr
 **/*.log  **/*.log.*
 ```
 
-La fuente de verdad es `paths.HardDeny` en el código.
+The source of truth is `paths.HardDeny` in the code.
 
-### Defaults del mapeo `config/`
+### Defaults for the `config/` mapping
 
 ```yaml
 include:
@@ -160,240 +160,240 @@ exclude:
   - "deps/**"
   - "tts/**"
   - "backups/**"
-  - "custom_components/**" # lo gestiona HACS; opt-in si alguien lo quiere versionar
+  - "custom_components/**" # managed by HACS; opt-in for anyone who wants to version it
   - "esphome/.esphome/**"
   - "**/__pycache__/**"
   - "ip_bans.yaml"
 ```
 
-Como es una whitelist, `.storage` queda afuera salvo lo que se incluye explícitamente (`lovelace*`): no hace falta excluirlo. `exclude` siempre gana sobre `include`, y la denylist dura gana sobre los dos.
+Since this is a whitelist, `.storage` stays out except for what is explicitly included (`lovelace*`): it does not need to be excluded. `exclude` always wins over `include`, and the hard denylist wins over both.
 
-**Por qué `.storage/lovelace*` es `push_only`:** HA tiene los dashboards en memoria y reescribe esos JSON cuando se guardan desde la UI. Escribirlos desde git con HA corriendo no se ve hasta un restart, y el próximo guardado desde la UI los pisa. Versionarlos sí sirve (historial, diffs). Bajarlos queda como opción futura con aviso de "requiere restart".
+**Why `.storage/lovelace*` is `push_only`:** HA keeps dashboards in memory and rewrites those JSON files when they are saved from the UI. Writing them from git while HA is running has no visible effect until a restart, and the next save from the UI overwrites them. Versioning them is still useful (history, diffs). Pulling them down remains a future option with a "requires restart" notice.
 
-### Guards de seguridad del escaneo
+### Scan safety guards
 
-- **Raíz vacía o ausente:** si el directorio de un mapeo no existe o no tiene ningún path gestionado y el árbol `box` sí tenía, el ciclo aborta (`suspicious_snapshot`). Es la protección contra un mount roto que se interpretaría como "borraron todo".
-- **Borrado masivo:** si un snapshot borra más de `delete_guard_files` (default 25) paths gestionados, o al menos 5 que además superan el `delete_guard_percent` (default 20 %) de los gestionados, aborta y pide confirmación. El mínimo de 5 evita que borrar 1 de 4 archivos en una config chica frene el sync. Lo mismo aplica a un cambio entrante desde `main`.
-- **Saltear nunca es borrar:** un archivo que se saltea (grande, binario, symlink, inestable, ilegible, o un directorio ilegible entero) conserva en `box` la versión que tenía.
-- **Cache de stat:** se reusa el blob de un archivo si coinciden tamaño, `mtime`, `ctime`, inode y modo. Un archivo modificado hace menos de 2 s no entra a la cache, y como `ctime` cambia con cualquier escritura, restaurar el `mtime` a mano no esconde una edición.
-- **Lecturas inestables:** se hashea cada archivo y se vuelve a hacer stat. Si cambió `mtime` o el tamaño durante la lectura, se reintenta (hasta 3 veces) y si sigue cambiando, ese path se deja para el próximo ciclo.
+- **Empty or missing root:** if a mapping's directory does not exist or has no managed paths while the `box` tree did have some, the cycle aborts (`suspicious_snapshot`). This protects against a broken mount being read as "everything was deleted".
+- **Mass deletion:** if a snapshot deletes more than `delete_guard_files` (default 25) managed paths, or at least 5 that also exceed `delete_guard_percent` (default 20 %) of the managed paths, it aborts and asks for confirmation. The minimum of 5 keeps deleting 1 of 4 files in a small config from stopping the sync. The same applies to an incoming change from `main`.
+- **Skipping is never deleting:** a skipped file (large, binary, symlink, unstable, unreadable, or an entire unreadable directory) keeps the version it had in `box`.
+- **Stat cache:** a file's blob is reused if size, `mtime`, `ctime`, inode, and mode match. A file modified less than 2 s ago does not enter the cache, and since `ctime` changes on any write, restoring `mtime` by hand does not hide an edit.
+- **Unstable reads:** each file is hashed and then stat'ed again. If `mtime` or size changed during the read, it is retried (up to 3 times), and if it keeps changing, that path is left for the next cycle.
 
-## 6. Modelo de sync
+## 6. Sync model
 
-### Ramas e invariantes
+### Branches and invariants
 
-- `box` (local, en `/data/repo.git`) es la verdad sobre **qué hay en el disco vivo** para los paths gestionados, salvo ediciones posteriores al último ciclo.
-- `origin/box` es la publicación de `box`. El motor solo la mueve con fast-forward.
-- `main` la escriben humanos. El motor solo la mueve con fast-forward, a un commit que ya pasó el check de config y ya está aplicado en el box.
-- Nunca hay `push --force`.
-- El motor solo modifica paths gestionados en sus commits. El resto del árbol se copia del commit padre.
+- `box` (local, in `/data/repo.git`) is the truth about **what is on the live disk** for managed paths, except for edits made after the last cycle.
+- `origin/box` is the published copy of `box`. The engine only moves it by fast-forward.
+- `main` is written by humans. The engine only moves it by fast-forward, to a commit that has already passed the config check and is already applied on the box.
+- There is never a `push --force`.
+- The engine only modifies managed paths in its commits. The rest of the tree is copied from the parent commit.
 
-### El ciclo, paso a paso
+### The cycle, step by step
 
 ```
- 0. lock (/data/lock) y recuperación de un apply interrumpido (ver §7)
+ 0. lock (/data/lock) and recovery of an interrupted apply (see §7)
  1. fetch origin main box
- 2. SNAPSHOT  escanear disco vivo → árbol T
-              si T ≠ árbol(box):
-                 escanear secretos en lo cambiado (§8) → si hay hallazgos: blocked_secrets, fin
-                 commit C en box (padre = box)
+ 2. SNAPSHOT  scan live disk → tree T
+              if T ≠ tree(box):
+                 scan the changes for secrets (§8) → if findings: blocked_secrets, stop
+                 commit C on box (parent = box)
  3. MERGE     B = box, M = origin/main
-              M no existe            → R = B          (bootstrap con remoto vacío)
-              M ancestro de B        → R = B          (solo cambió el box)
-              B ancestro de M        → R = M          (solo cambió main)
-              si no                  → git merge-tree --write-tree B M
-                  con conflictos     → push box, estado conflict, notificar, fin
-                  limpio             → R = commit(árbol, padres = [M, B])
- 4. APPLY     si árbol(R) ≠ árbol(B): aplicar diff B→R en disco (§7)
-                  falla el check     → rollback a B, push box, estado rejected, fin
- 5. PUBLICAR  box := R (local)
+              M does not exist       → R = B          (bootstrap with empty remote)
+              M ancestor of B        → R = B          (only the box changed)
+              B ancestor of M        → R = M          (only main changed)
+              otherwise              → git merge-tree --write-tree B M
+                  with conflicts     → push box, state conflict, notify, stop
+                  clean              → R = commit(tree, parents = [M, B])
+ 4. APPLY     if tree(R) ≠ tree(B): apply diff B→R to disk (§7)
+                  check fails        → rollback to B, push box, state rejected, stop
+ 5. PUBLISH   box := R (local)
               push --atomic origin R:main R:box
-                  rechazado (main avanzó) → volver a 1 (máx. 3 veces por ciclo)
- 6. POST      reloads según política (§7), notificación si corresponde, evento
+                  rejected (main moved) → back to 1 (max. 3 times per cycle)
+ 6. POST      reloads per policy (§7), notification if needed, event
 ```
 
 ```
-main:  A───────M1────────────R          (R = merge de main + box, ya aplicado)
+main:  A───────M1────────────R          (R = merge of main + box, already applied)
         \                  /
-box:     B0──C1──C2───────'              (C1, C2 = snapshots del box)
-                          después de publicar: box = R
+box:     B0──C1──C2───────'              (C1, C2 = box snapshots)
+                          after publishing: box = R
 ```
 
-Detalles:
+Details:
 
-- **El primer padre del merge es `main`**, para que `git log --first-parent main` cuente la historia humana.
-- **Mover `box` localmente antes de pushear** hace que un push rechazado no rompa nada: el disco ya está en R, `box` dice R, y el próximo intento mergea R contra el `main` nuevo.
-- **Durante un conflicto el box se sigue snapshoteando** (los cambios del box nunca se pierden) pero no se aplica nada desde `main`.
-- **Un `R` rechazado por el check** se recuerda en `state.json` y no se reintenta hasta que `origin/main` cambie.
-- **Los paths `push_only` siempre quedan como en `box`.** En cualquier caso de merge, `R` lleva la versión de `box` de esos paths. Si `main` los había cambiado o borrado, se descarta y se reporta en `Overridden`. En el caso fast-forward eso significa un commit nuevo sobre `main`. Un conflicto de contenido, add/add o modify/delete en el que todos los paths son `push_only` se resuelve solo a favor del box. Los conflictos de estructura (archivo/directorio, renombres) frenan siempre, porque git deja paths auxiliares en el árbol.
-- **Historias sin relación** (alguien reescribió `main` desde cero): el merge falla con un error explícito y no se aplica nada.
+- **The merge's first parent is `main`**, so that `git log --first-parent main` tells the human history.
+- **Moving `box` locally before pushing** means a rejected push breaks nothing: the disk is already at R, `box` says R, and the next attempt merges R against the new `main`.
+- **During a conflict the box keeps being snapshotted** (box changes are never lost) but nothing is applied from `main`.
+- **An `R` rejected by the check** is remembered in `state.json` and not retried until `origin/main` changes.
+- **`push_only` paths always stay as in `box`.** In every merge case, `R` carries the `box` version of those paths. If `main` had changed or deleted them, that is discarded and reported in `Overridden`. In the fast-forward case this means a new commit on top of `main`. A content, add/add, or modify/delete conflict in which every path is `push_only` is resolved automatically in favor of the box. Structural conflicts (file/directory, renames) always stop the sync, because git leaves auxiliary paths in the tree.
+- **Unrelated histories** (someone rewrote `main` from scratch): the merge fails with an explicit error and nothing is applied.
 
-### Conflictos
+### Conflicts
 
-1. El motor pushea `box` y queda en estado `conflict` con la lista de paths en conflicto.
-2. Notifica (notificación persistente en HA + evento, ver §10).
-3. El usuario resuelve como cualquier merge:
-   - en local: `git fetch && git switch main && git merge origin/box`, resolver, `git push`;
-   - o en GitHub: PR `box → main` y el editor de conflictos.
-4. En el ciclo siguiente `main` ya contiene a `box` (o casi) y el merge sale limpio.
+1. The engine pushes `box` and stays in the `conflict` state with the list of conflicting paths.
+2. It notifies (persistent notification in HA + event, see §10).
+3. The user resolves it like any merge:
+   - locally: `git fetch && git switch main && git merge origin/box`, resolve, `git push`;
+   - or on GitHub: a `box → main` PR and the conflict editor.
+4. On the next cycle `main` already contains `box` (or nearly) and the merge comes out clean.
 
-No hay estrategia automática (`prefer_main` / `prefer_box`) en v0/v1. Queda como opción futura.
+There is no automatic strategy (`prefer_main` / `prefer_box`) in v0/v1. It remains a future option.
 
 ### Bootstrap
 
-| Situación | Comportamiento |
+| Situation | Behavior |
 |---|---|
-| Remoto vacío | Primer snapshot como commit raíz. `main = box = ese commit`. |
-| `main` existe, `box` no | Snapshot con padre `main` (el diff `main..box` muestra exactamente en qué difiere el box del repo). Se pushea `box` y el motor queda en `bootstrap_review`: **no** mergea ni aplica hasta que el usuario (a) mergee `box` en `main` por su cuenta o (b) confirme con `sync --accept-bootstrap`. Sin este freno, el primer merge sería un fast-forward silencioso del box sobre `main`. |
-| `main` y `box` existen | Ciclo normal. |
+| Empty remote | First snapshot as the root commit. `main = box = that commit`. |
+| `main` exists, `box` does not | Snapshot with parent `main` (the `main..box` diff shows exactly how the box differs from the repo). `box` is pushed and the engine stays in `bootstrap_review`: it does **not** merge or apply until the user either (a) merges `box` into `main` themselves or (b) confirms with `sync --accept-bootstrap`. Without this stop, the first merge would be a silent fast-forward of the box over `main`. |
+| `main` and `box` exist | Normal cycle. |
 
-### Modos
+### Modes
 
-`mode: bidirectional` (default) | `push_only` (no aplica nunca desde `main`) | `pull_only` (no snapshotea; útil para un box de staging).
+`mode: bidirectional` (default) | `push_only` (never applies from `main`) | `pull_only` (does not snapshot; useful for a staging box).
 
-- `push_only` solo publica la rama `box`; `main` queda para los humanos y el box nunca la lee.
-- `pull_only` queda fuera del v0: el motor lo rechaza con un error explícito. Falta definir qué hacer con las ediciones locales (¿se descartan?) antes de implementarlo.
+- `push_only` only publishes the `box` branch; `main` is left to humans and the box never reads it.
+- `pull_only` is out of scope for v0: the engine rejects it with an explicit error. What to do with local edits (discard them?) has to be defined before implementing it.
 
-### Otros casos del ciclo (implementados en M6)
+### Other cycle cases (implemented in M6)
 
-- **Alguien pusheó a `box`:** si `origin/box` no es ancestro del `box` local, el motor frena con error (`box` diverge) y no pisa nada. `box` es solo del motor.
-- **Reintentos:** si el disco cambia entre el snapshot y el apply (CAS) o `main` avanza entre el fetch y el push, el ciclo vuelve a empezar, hasta 3 veces por ejecución.
-- **Códigos de salida del CLI:** `0` = `idle`; `1` = estado que pide intervención (conflicto, rechazo, secretos, bootstrap, snapshot frenado); `2` = error.
+- **Someone pushed to `box`:** if `origin/box` is not an ancestor of the local `box`, the engine stops with an error (`box` diverged) and overwrites nothing. `box` belongs to the engine only.
+- **Retries:** if the disk changes between the snapshot and the apply (CAS) or `main` advances between the fetch and the push, the cycle starts over, up to 3 times per run.
+- **CLI exit codes:** `0` = `idle`; `1` = a state that needs intervention (conflict, rejection, secrets, bootstrap, stopped snapshot); `2` = error.
 
-## 7. Aplicar al box, check, rollback y reloads
+## 7. Applying to the box, check, rollback, and reloads
 
 ### Apply
 
-1. **YAML pre-check** (barato, sin HA): parsear todo `.yaml`/`.yml` cambiado aceptando los tags de HA (`!secret`, `!include`, `!include_dir_*`, `!input`, `!env_var`). Un error de sintaxis frena acá, antes de tocar el disco. Los `.json` se validan igual.
-2. **Write-ahead:** se graba en `state.json` `{"applying": {"from": B, "to": R, "paths": [...]}}`.
-3. **Compare-and-swap por path:** antes de escribir, cada path a tocar tiene que estar en disco exactamente como en `B` (o no existir, si en `B` no existe). Si alguien lo editó desde el snapshot, se aborta el apply sin escribir nada y se vuelve al paso 1 del ciclo.
-4. **Escritura atómica:** archivo temporal en el mismo directorio + `rename`. Se crean directorios padre si faltan. Los borrados eliminan el archivo y los directorios que queden vacíos, solo dentro del mapeo. El bit de ejecución sigue a git; el resto de los permisos se preserva si el archivo ya existía.
-5. **Check de config:** si cambió algo bajo el mapeo de `/homeassistant`, `POST /api/config/core/check_config`. En `/app_configs` no hay un check genérico: solo el pre-check de sintaxis.
-6. **Rollback** si el check da `invalid`: se reescriben desde `B` los paths tocados (el CAS garantiza que `B` era el estado previo). Se limpia el write-ahead.
+1. **YAML pre-check** (cheap, no HA): parse every changed `.yaml`/`.yml`, accepting HA tags (`!secret`, `!include`, `!include_dir_*`, `!input`, `!env_var`). A syntax error stops here, before touching the disk. `.json` files are validated the same way.
+2. **Write-ahead:** `{"applying": {"from": B, "to": R, "paths": [...]}}` is recorded in `state.json`.
+3. **Per-path compare-and-swap:** before writing, every path to be touched must be on disk exactly as in `B` (or not exist, if it does not exist in `B`). If someone edited it since the snapshot, the apply is aborted without writing anything and the cycle goes back to step 1.
+4. **Atomic write:** temporary file in the same directory + `rename`. Missing parent directories are created. Deletions remove the file and any directories left empty, only inside the mapping. The executable bit follows git; other permissions are preserved if the file already existed.
+5. **Config check:** if anything under the `/homeassistant` mapping changed, `POST /api/config/core/check_config`. There is no generic check for `/app_configs`: only the syntax pre-check.
+6. **Rollback** if the check returns `invalid`: the touched paths are rewritten from `B` (the CAS guarantees `B` was the previous state). The write-ahead is cleared.
 
-**Warnings de `check_config` (`check_warnings: new|any|ignore`, default `new`).** Probado contra HA 2026.11.1 real: una integración con config inválida (por ejemplo, un `input_boolean` con un valor que no es booleano) **no** es un error para HA, es un warning. La config sale "válida", HA arranca y esa integración queda desactivada. Lo mismo pasa con una automatización con un trigger inexistente, que se desactiva y ni siquiera aparece como warning. Por eso:
+**`check_config` warnings (`check_warnings: new|any|ignore`, default `new`).** Tested against real HA 2026.11.1: an integration with invalid config (for example, an `input_boolean` with a non-boolean value) is **not** an error for HA, it is a warning. The config comes out "valid", HA starts, and that integration is disabled. The same happens with an automation with a nonexistent trigger, which is disabled and does not even show up as a warning. Therefore:
 
-- `new` (default): se corre un check **antes** de escribir para tener los warnings de base y se rechaza si el cambio agrega alguno. La comparación ignora los números de línea, que se corren con cualquier edición. Cuesta un check más por apply, pero no deja que un push apague una integración en silencio, y una config que ya arrastra warnings no queda trabada.
-- `any`: rechaza con cualquier warning.
-- `ignore`: solo mira los errores, como el botón "Verificar configuración" de la UI.
-- La API REST es todavía más permisiva que el script de la CLI: `http.server_port` inválido es un **error** para `check_config --json`, pero por `/api/config/core/check_config` (lo que usa la app) es un **warning** con `result: valid`. Para la API, solo un YAML que no parsea es error. Con `ignore` se dejaría pasar casi todo; por eso el default es `new`.
-- Las automatizaciones inválidas no las detecta ninguna de las tres. Queda como mejora futura (por ejemplo, revisar el log o el estado `unavailable` de las automatizaciones después del reload).
+- `new` (default): a check is run **before** writing to get the baseline warnings, and the change is rejected if it adds any. The comparison ignores line numbers, which shift with any edit. It costs one extra check per apply, but it keeps a push from silently disabling an integration, and a config that already carries warnings does not get stuck.
+- `any`: rejects on any warning.
+- `ignore`: only looks at errors, like the "Check configuration" button in the UI.
+- The REST API is even more permissive than the CLI script: an invalid `http.server_port` is an **error** for `check_config --json`, but through `/api/config/core/check_config` (what the app uses) it is a **warning** with `result: valid`. For the API, only YAML that does not parse is an error. With `ignore` almost everything would get through; that is why the default is `new`.
+- Invalid automations are not detected by any of the three. This remains a future improvement (for example, checking the log or the automations' `unavailable` state after the reload).
 
-**Ventana de riesgo:** `check_config` valida el directorio vivo, así que los archivos nuevos están en disco unos segundos antes del rollback. HA no relee YAML por su cuenta (salvo integraciones puntuales que vigilan archivos, como pyscript), así que el riesgo es bajo. Un check en un directorio de staging necesitaría la imagen de HA Core dentro de la app, que pesa demasiado. Se documenta y se descarta para v1.
+**Risk window:** `check_config` validates the live directory, so new files are on disk for a few seconds before the rollback. HA does not reread YAML on its own (except specific integrations that watch files, such as pyscript), so the risk is low. A check in a staging directory would need the HA Core image inside the app, which is too heavy. This is documented and ruled out for v1.
 
-**Recuperación tras un corte:** el journal tiene dos fases: `writing` (escribiendo o validando) y `checked` (el disco está en `R` y el check pasó; falta mover `box`). Al arrancar:
+**Recovery after an interruption:** the journal has two phases: `writing` (writing or validating) and `checked` (the disk is at `R` and the check passed; `box` still has to move). On startup:
 
-- en fase `checked` y con todos los paths como en `R`: se confirma `R` (`box := R`);
-- en cualquier otro caso se vuelve a `B`: un `R` que no llegó a validarse nunca se da por bueno, aunque haya quedado entero en disco. Solo se revierten los paths que quedaron como en `R`; si alguien editó un path después del corte, no se pisa y entra en el próximo snapshot.
+- in the `checked` phase and with every path as in `R`: `R` is confirmed (`box := R`);
+- in any other case it goes back to `B`: an `R` that was never validated is never taken as good, even if it ended up complete on disk. Only paths that are as in `R` are reverted; if someone edited a path after the interruption, it is not overwritten and goes into the next snapshot.
 
-**Otros resguardos del apply:**
+**Other apply safeguards:**
 
-- Ningún componente entre la raíz del mapeo y el archivo puede ser un symlink, para no escribir fuera del mapeo.
-- Un directorio que pasa a ser archivo solo se reemplaza si quedó vacío después de los borrados; si tiene archivos no gestionados, falla y se hace rollback.
-- Cada mapeo tiene `check: bool` (default `true` para `config/`, `false` para `app_configs/`): define si un cambio ahí exige `check_config`.
+- No component between the mapping root and the file may be a symlink, so nothing is written outside the mapping.
+- A directory that becomes a file is only replaced if it is empty after the deletions; if it has unmanaged files, the apply fails and is rolled back.
+- Each mapping has `check: bool` (default `true` for `config/`, `false` for `app_configs/`): it defines whether a change there requires `check_config`.
 
-### Reloads y restart
+### Reloads and restart
 
-- `reload: auto` (default): si el apply tocó `/homeassistant` y el check pasó, se llama `homeassistant.reload_all` (recarga todo lo que es recargable por YAML).
-- `reload: none`: no recarga nada; solo avisa.
-- **Restart nunca es automático por defecto.** Si cambiaron paths que suelen requerir restart (`configuration.yaml` fuera de bloques recargables, `packages/**`, `custom_components/**` si alguien los incluyó), el estado pasa a tener `restart_recommended: true` y se manda una notificación. `restart: auto` existe como opt-in explícito para quien lo quiera.
-- En `/app_configs` el motor no reinicia apps. Avisa qué apps tuvieron cambios. Reiniciar apps desde el motor queda para v2, con `hassio_api`.
+- `reload: auto` (default): if the apply touched `/homeassistant` and the check passed, `homeassistant.reload_all` is called (it reloads everything that is reloadable from YAML).
+- `reload: none`: reloads nothing; only notifies.
+- **Restart is never automatic by default.** If paths that usually require a restart changed (`configuration.yaml` outside reloadable blocks, `packages/**`, `custom_components/**` if someone included them), the state gets `restart_recommended: true` and a notification is sent. `restart: auto` exists as an explicit opt-in for anyone who wants it.
+- In `/app_configs` the engine does not restart apps. It reports which apps had changes. Restarting apps from the engine is left for v2, with `hassio_api`.
 
-## 8. Escáner de secretos
+## 8. Secret scanner
 
-Corre **antes de commitear un snapshot**, sobre el contenido agregado o modificado. Si encuentra algo, el snapshot no se commitea (para que el secreto nunca quede ni en el repo local) y el estado pasa a `blocked_secrets`.
+It runs **before committing a snapshot**, on added or modified content. If it finds something, the snapshot is not committed (so the secret never ends up even in the local repo) and the state becomes `blocked_secrets`.
 
-**Solo mira lo que el box cambia.** Un secreto que ya está en `main` con el mismo contenido no frena el sync: ya se filtró, y bloquear no protege nada. Para auditar lo que ya está en el repo, `hcs scan-secrets` sobre un clon. Esto se vio en el E2E del M9: contra un repo existente, los secretos de ESPHome que ya estaban trackeados no frenaron; contra un repo vacío o limpio, sí.
+**It only looks at what the box changes.** A secret already in `main` with the same content does not stop the sync: it has already leaked, and blocking protects nothing. To audit what is already in the repo, run `hcs scan-secrets` on a clone. This showed up in the M9 E2E: against an existing repo, ESPHome secrets that were already tracked did not stop the sync; against an empty or clean repo, they did.
 
-Reglas:
+Rules:
 
-- Las reglas por defecto de gitleaks (tokens de proveedores, claves privadas, `generic-api-key`), embebidas como librería (v8.30.1; el binario queda en ~9 MB para aarch64, sin símbolos). Su logger se apaga para que nunca escriba contenido.
-- Reglas propias de HA:
-  - clave YAML que matchea `password|passwd|token|api_key|apikey|secret|client_secret|access_token|private_key|bearer` con un valor escalar literal (no `!secret`, no `!env_var`, no plantilla) → hallazgo;
-  - `webhook_id` literal → advertencia (cualquiera con la URL dispara la automatización). Configurable para tratarla como hallazgo;
-  - URL con `user:pass@`.
-- Los hallazgos se reportan como `path:línea:regla` y **nunca incluyen el valor**, ni en logs ni en la API.
-- Excepciones: lista de fingerprints (`sha256(path + regla + línea normalizada)`) en las opciones de la app (`secret_scan.allow`). Una edición de esa línea o mover el archivo invalida la excepción; mover la línea dentro del archivo, no.
-- `hcs scan-secrets PATH...` corre el escáner suelto (sirve como pre-commit hook en local). Sale con 1 si hay hallazgos bloqueantes.
+- gitleaks default rules (provider tokens, private keys, `generic-api-key`), embedded as a library (v8.30.1; the binary stays at ~9 MB for aarch64, stripped). Its logger is silenced so it never writes content.
+- HA-specific rules:
+  - YAML key matching `password|passwd|token|api_key|apikey|secret|client_secret|access_token|private_key|bearer` with a literal scalar value (not `!secret`, not `!env_var`, not a template) → finding;
+  - literal `webhook_id` → warning (anyone with the URL can trigger the automation). Configurable to treat it as a finding;
+  - URL with `user:pass@`.
+- Findings are reported as `path:line:rule` and **never include the value**, neither in logs nor in the API.
+- Exceptions: a list of fingerprints (`sha256(path + rule + normalized line)`) in the app options (`secret_scan.allow`). Editing that line or moving the file invalidates the exception; moving the line within the file does not.
+- `hcs scan-secrets PATH...` runs the scanner standalone (useful as a local pre-commit hook). It exits with 1 if there are blocking findings.
 
-## 9. Autenticación con el remoto
+## 9. Authentication with the remote
 
-- **Solo SSH con una deploy key.** Nunca PAT, nunca HTTPS.
-- La app genera un par ed25519 en `/data/ssh/id_ed25519` (0600) en el primer arranque. Muestra la clave pública en el log (v1), en `GET /api/v1/deploy-key` y en la UI (v2). El usuario la carga en GitHub como deploy key **con permiso de escritura**, limitada a ese repo.
-- `known_hosts` fijo: las host keys publicadas de GitHub vienen embebidas. Para otros hosts (Gitea, GitLab) hay una opción `ssh_known_hosts`. Siempre con `StrictHostKeyChecking=yes`; no hay trust-on-first-use.
-- Entorno de git endurecido en cada invocación:
+- **SSH with a deploy key only.** Never a PAT, never HTTPS.
+- The app generates an ed25519 key pair at `/data/ssh/id_ed25519` (0600) on first start. It shows the public key in the log (v1), at `GET /api/v1/deploy-key`, and in the UI (v2). The user adds it on GitHub as a deploy key **with write access**, limited to that repo.
+- Pinned `known_hosts`: GitHub's published host keys are embedded. For other hosts (Gitea, GitLab) there is an `ssh_known_hosts` option. Always with `StrictHostKeyChecking=yes`; there is no trust-on-first-use.
+- Hardened git environment on every invocation:
   - `GIT_SSH_COMMAND="ssh -i /data/ssh/id_ed25519 -o IdentitiesOnly=yes -o IdentityAgent=none -o UserKnownHostsFile=/data/ssh/known_hosts -o StrictHostKeyChecking=yes"`
   - `GIT_TERMINAL_PROMPT=0`, `GIT_ASKPASS=/bin/false`, `-c credential.helper=`
-  - `-c protocol.allow=never -c protocol.ssh.allow=always` (`file` habilitado solo en tests)
-- Validación de la URL del repo: solo `git@host:owner/repo.git` o `ssh://...`. Se rechaza `http(s)://` y cualquier URL con credenciales embebidas.
-- Rotación: `POST /api/v1/deploy-key/rotate` (genera la clave nueva, muestra la pública, y la anterior se borra al primer push exitoso con la nueva).
+  - `-c protocol.allow=never -c protocol.ssh.allow=always` (`file` enabled only in tests)
+- Repo URL validation: only `git@host:owner/repo.git` or `ssh://...`. `http(s)://` and any URL with embedded credentials are rejected.
+- Rotation: `POST /api/v1/deploy-key/rotate` (generates the new key, shows the public key, and the old one is deleted on the first successful push with the new one).
 
-## 10. API de Home Assistant vía `SUPERVISOR_TOKEN`
+## 10. Home Assistant API via `SUPERVISOR_TOKEN`
 
-Con `homeassistant_api: true` la app recibe `SUPERVISOR_TOKEN` y habla con Core a través del proxy del Supervisor (`http://supervisor/core/api/...`, header `Authorization: Bearer $SUPERVISOR_TOKEN`). No hace falta ningún token de larga duración.
+With `homeassistant_api: true` the app receives `SUPERVISOR_TOKEN` and talks to Core through the Supervisor proxy (`http://supervisor/core/api/...`, header `Authorization: Bearer $SUPERVISOR_TOKEN`). No long-lived token is needed.
 
-| Uso | Llamada |
+| Use | Call |
 |---|---|
-| Check de config | `POST /api/config/core/check_config` → `{"result": "valid" \| "invalid", "errors": ...}` |
+| Config check | `POST /api/config/core/check_config` → `{"result": "valid" \| "invalid", "errors": ...}` |
 | Reload | `POST /api/services/homeassistant/reload_all` |
-| Notificar | `POST /api/services/persistent_notification/create` con `notification_id` fijo (se actualiza en vez de apilarse). Opcional: `notify_service` (p. ej. `notify.mobile_app_x`). |
-| Eventos | `POST /api/events/homeassistant_config_sync` con `{"type": "sync_finished" \| "conflict" \| "rejected" \| "blocked_secrets" \| "error", ...}`. Sirve para automatizaciones desde v1, sin esperar la integración. |
+| Notify | `POST /api/services/persistent_notification/create` with a fixed `notification_id` (updated instead of stacking). Optional: `notify_service` (e.g. `notify.mobile_app_x`). |
+| Events | `POST /api/events/homeassistant_config_sync` with `{"type": "sync_finished" \| "conflict" \| "rejected" \| "blocked_secrets" \| "error", ...}`. Usable in automations from v1, without waiting for the integration. |
 
-**Verificado (2026-11-11)** con el Supervisor 2026.11.0 y Core 2026.11.1 en Docker (`scripts/supervisor-dev.sh` + `scripts/supervisor-test.sh`): desde la app, con su `SUPERVISOR_TOKEN` y `homeassistant_api: true`, `check_config`, `reload_all`, el evento y la notificación funcionan a través del proxy. No hace falta `hassio_api`.
+**Verified (2026-11-11)** with Supervisor 2026.11.0 and Core 2026.11.1 in Docker (`scripts/supervisor-dev.sh` + `scripts/supervisor-test.sh`): from the app, with its `SUPERVISOR_TOKEN` and `homeassistant_api: true`, `check_config`, `reload_all`, the event, and the notification work through the proxy. `hassio_api` is not needed.
 
-Comportamiento implementado (M7, `internal/ha/supervisor.go`):
+Implemented behavior (M7, `internal/ha/supervisor.go`):
 
-- **Cada ciclo que hizo algo** dispara el evento `homeassistant_config_sync` con `type`, `title`, `message` y datos extra (`state`, `paths`, `findings`), que no pueden pisar los tres primeros.
-- **Los estados que piden intervención** además crean o actualizan una sola notificación persistente (`notification_id: homeassistant_config_sync`) y, si hay `notify_service`, la mandan ahí.
-- **Un sync que vuelve a la normalidad** descarta esa notificación (`persistent_notification.dismiss`). Un ciclo sin cambios no manda nada.
-- **Timeouts:** 120 s para `check_config` (en una Raspberry Pi tarda) y 30 s para lo demás. Si falla un paso, igual se intentan los otros.
-- **Ningún error incluye el token.** Las respuestas se leen con un límite de 1 MiB.
-- **El CLI elige solo:** con `SUPERVISOR_TOKEN` en el entorno (dentro de la app) usa el Supervisor para check, reload y notificaciones. En local usa `--checker noop|command:'…'` y no recarga ni notifica.
+- **Every cycle that did something** fires the `homeassistant_config_sync` event with `type`, `title`, `message`, and extra data (`state`, `paths`, `findings`), which cannot overwrite the first three.
+- **States that need intervention** also create or update a single persistent notification (`notification_id: homeassistant_config_sync`) and, if `notify_service` is set, send it there too.
+- **A sync that returns to normal** dismisses that notification (`persistent_notification.dismiss`). A cycle with no changes sends nothing.
+- **Timeouts:** 120 s for `check_config` (it is slow on a Raspberry Pi) and 30 s for everything else. If one step fails, the others are still attempted.
+- **No error includes the token.** Responses are read with a 1 MiB limit.
+- **The CLI picks automatically:** with `SUPERVISOR_TOKEN` in the environment (inside the app) it uses the Supervisor for check, reload, and notifications. Locally it uses `--checker noop|command:'…'` and does not reload or notify.
 
-## 11. Disparadores
+## 11. Triggers
 
-- **Programado:** `sync_interval_minutes` (default 5; `0` = solo manual). Si un ciclo sigue corriendo, el tick se saltea. Para que un intervalo corto no cargue el box, el escaneo solo re-hashea los archivos cuyo `mtime`, tamaño o inode cambió respecto del ciclo anterior (cache de stat en `/data/state.json`), y el fetch es un solo round-trip SSH.
+- **Scheduled:** `sync_interval_minutes` (default 5; `0` = manual only). If a cycle is still running, the tick is skipped. So that a short interval does not load the box, the scan only re-hashes files whose `mtime`, size, or inode changed since the previous cycle (stat cache in `/data/state.json`), and the fetch is a single SSH round-trip.
 - **Manual:**
-  - v1: `stdin: true`, así que la acción `hassio.addon_stdin` con `{"input": "sync"}` dispara un ciclo desde una automatización o un botón de dashboard, sin UI propia;
+  - v1: `stdin: true`, so the `hassio.addon_stdin` action with `{"input": "sync"}` triggers a cycle from an automation or a dashboard button, without a dedicated UI;
   - API: `POST /api/v1/sync`;
-  - v2: botón en la UI por ingress; v3: entidad `button` de la integración.
-- Nunca dispara un restart de HA (§7).
+  - v2: button in the ingress UI; v3: `button` entity from the integration.
+- It never triggers an HA restart (§7).
 
-## 12. API HTTP
+## 12. HTTP API
 
-Pensada para la UI de v2 y para la integración HACS de v3. Escucha en un puerto interno (8099), sin exponerlo al host.
+Designed for the v2 UI and the v3 HACS integration. It listens on an internal port (8099), not exposed to the host.
 
-| Método y ruta | Respuesta |
+| Method and route | Response |
 |---|---|
 | `GET /api/v1/status` | `state` (`idle`, `syncing`, `conflict`, `rejected`, `blocked_secrets`, `bootstrap_review`, `suspicious_snapshot`, `error`), `last_sync`, `last_result`, `box_head`, `main_head`, `ahead`/`behind`, `pending_local`, `pending_incoming`, `restart_recommended`, `last_error`. |
-| `GET /api/v1/pending` | Cambios locales sin commitear (escaneo en seco), cambios entrantes de `origin/main` sin aplicar, paths ignorados con su motivo. |
-| `GET /api/v1/conflict` | Paths en conflicto, commits de `box` y `main`, y el link al compare de GitHub si el remoto es GitHub. |
-| `POST /api/v1/sync` | Body opcional `{"dry_run": bool, "accept_bootstrap": bool}`. `202 {"job_id"}` o `409` si ya hay un ciclo corriendo. |
-| `GET /api/v1/jobs/{id}` | Progreso y resultado de un ciclo. |
-| `GET /api/v1/deploy-key` | Clave pública. |
-| `POST /api/v1/deploy-key/rotate` | Rotación (§9). |
-| `GET /api/v1/events` (v2) | Server-Sent Events con los mismos tipos que el evento de HA. |
+| `GET /api/v1/pending` | Uncommitted local changes (dry scan), unapplied incoming changes from `origin/main`, ignored paths with their reason. |
+| `GET /api/v1/conflict` | Conflicting paths, `box` and `main` commits, and the GitHub compare link if the remote is GitHub. |
+| `POST /api/v1/sync` | Optional body `{"dry_run": bool, "accept_bootstrap": bool}`. `202 {"job_id"}` or `409` if a cycle is already running. |
+| `GET /api/v1/jobs/{id}` | Progress and result of a cycle. |
+| `GET /api/v1/deploy-key` | Public key. |
+| `POST /api/v1/deploy-key/rotate` | Rotation (§9). |
+| `GET /api/v1/events` (v2) | Server-Sent Events with the same types as the HA event. |
 
-Autenticación:
+Authentication:
 
-- Las requests por ingress llegan desde el proxy del Supervisor (`172.30.32.2`) y se aceptan.
-- El resto necesita `Authorization: Bearer <token>`, con el token generado en `/data/api_token`. En v3 la app lo entrega a la integración vía Supervisor discovery (`discovery:` en `config.yaml` + `hassio_api`).
+- Ingress requests come from the Supervisor proxy (`172.30.32.2`) and are accepted.
+- Everything else needs `Authorization: Bearer <token>`, with the token generated at `/data/api_token`. In v3 the app hands it to the integration via Supervisor discovery (`discovery:` in `config.yaml` + `hassio_api`).
 
-Implementado en M8 (`internal/api`, `hcs serve`):
+Implemented in M8 (`internal/api`, `hcs serve`):
 
-- Todos los endpoints de la tabla salvo `deploy-key/rotate` y `events` (SSE), que quedan para v2.
-- **Un solo ciclo a la vez:** si ya hay uno corriendo, `POST /sync` y `GET /pending` responden `409` con el job en curso. El scheduler se saltea el tick.
-- **`GET /pending`** es un dry-run sincrónico.
-- **Un apagado (SIGTERM)** deja de aceptar requests y espera a que termine el ciclo en curso. Los ciclos nunca se cancelan a mitad de camino; tienen un tope de 15 min.
-- **`hcs serve`** acepta `--listen` (default `127.0.0.1:8099`; la app usa `0.0.0.0:8099`), `--stdin` (comandos de `hassio.addon_stdin`: `"sync"`) y `--sync-on-start`.
-- **Token:** `hcs init` genera `api_token`; init nunca lo rota. Se compara en tiempo constante.
+- All endpoints in the table except `deploy-key/rotate` and `events` (SSE), which are left for v2.
+- **One cycle at a time:** if one is already running, `POST /sync` and `GET /pending` respond `409` with the current job. The scheduler skips the tick.
+- **`GET /pending`** is a synchronous dry run.
+- **A shutdown (SIGTERM)** stops accepting requests and waits for the current cycle to finish. Cycles are never cancelled halfway; they are capped at 15 min.
+- **`hcs serve`** accepts `--listen` (default `127.0.0.1:8099`; the app uses `0.0.0.0:8099`), `--stdin` (`hassio.addon_stdin` commands: `"sync"`), and `--sync-on-start`.
+- **Token:** `hcs init` generates `api_token`; init never rotates it. It is compared in constant time.
 
-La integración HACS de v3 expone: sensor de estado, sensores de último sync y de cambios pendientes, `binary_sensor` de conflicto, `button` "Sincronizar ahora" y disparadores de dispositivo a partir de los eventos.
+The v3 HACS integration exposes: a state sensor, last-sync and pending-changes sensors, a conflict `binary_sensor`, a "Sync now" `button`, and device triggers based on the events.
 
-## 13. Configuración de la app (borrador de `config.yaml`)
+## 13. App configuration (draft `config.yaml`)
 
 ```yaml
-name: Config Sync
+name: Git Config Sync
 slug: homeassistant_config_sync
 version: 0.1.0
 arch: [aarch64, amd64]
@@ -405,7 +405,7 @@ stdin: true
 map:
   - type: homeassistant_config
     read_only: false
-  - type: all_addon_configs
+  - type: all_app_configs
     read_only: false
 options:
   repository: ""                  # git@github.com:owner/repo.git
@@ -420,87 +420,87 @@ options:
   delete_guard_percent: 20
   delete_guard_files: 25
   notify_service: ""
-  mappings: [ ...defaults de §4 y §5... ]
+  mappings: [ ...defaults from §4 and §5... ]
   secret_scan:
     webhook_id: warn
     allow: []
-schema: { ... }                   # validación del Supervisor
+schema: { ... }                   # Supervisor validation
 ```
 
-El CLI de v0 lee exactamente el mismo esquema desde un archivo (`--config`), así el v1 no tiene una configuración aparte.
+The v0 CLI reads exactly the same schema from a file (`--config`), so v1 does not have a separate configuration.
 
-### Estado en `/data`
+### State in `/data`
 
 ```
-/data/options.json          lo escribe el Supervisor
-/data/repo.git/             repo bare (refs: box, origin/main, origin/box)
+/data/options.json          written by the Supervisor
+/data/repo.git/             bare repo (refs: box, origin/main, origin/box)
 /data/ssh/                  id_ed25519, id_ed25519.pub, known_hosts
-/data/state.json            último resultado, R rechazado, write-ahead de apply, contadores
+/data/state.json            last result, rejected R, apply write-ahead, counters
 /data/api_token
 /data/lock
 ```
 
-## 14. Modelo de amenazas (resumen)
+## 14. Threat model (summary)
 
-| Amenaza | Mitigación |
+| Threat | Mitigation |
 |---|---|
-| Secretos que salen del box | Denylist dura, whitelist del lado del box, escáner antes del commit. |
-| Alguien con push al repo ejecuta código en el box | Solo se escriben paths gestionados; `custom_components` y `python_scripts` quedan fuera o son opt-in. Hay que documentar que **escribir a `main` equivale a administrar la config de HA**: proteger `main` (branch protection, PRs). |
-| Alguien con push al repo amplía lo que sale del box | La whitelist no vive en el repo. |
-| Mount roto o `main` vaciado borra todo | Guards de raíz vacía y de borrado masivo en las dos direcciones. |
-| Robo de credenciales | Una deploy key acotada a un repo, sin agent ni helpers; nada de tokens de HA de larga duración. |
-| MITM sobre SSH | `known_hosts` fijo, sin TOFU. |
+| Secrets leaving the box | Hard denylist, box-side whitelist, scanner before commit. |
+| Someone with push access to the repo runs code on the box | Only managed paths are written; `custom_components` and `python_scripts` are left out or opt-in. It must be documented that **writing to `main` is equivalent to administering the HA config**: protect `main` (branch protection, PRs). |
+| Someone with push access to the repo widens what leaves the box | The whitelist does not live in the repo. |
+| A broken mount or an emptied `main` deletes everything | Empty-root and mass-deletion guards in both directions. |
+| Credential theft | One deploy key scoped to one repo, no agent or helpers; no long-lived HA tokens. |
+| MITM over SSH | Pinned `known_hosts`, no TOFU. |
 
 ## 15. Roadmap
 
-| Versión | Alcance | Criterio de listo |
+| Version | Scope | Done when |
 |---|---|---|
-| **v0** | Motor como CLI (`hcs`), testeable en local contra una config sintética y un remoto bare local. Checker de HA enchufable (fake / noop / comando). | Catálogo de escenarios de `docs/plan-v0.md` en verde; E2E sobre la config sintética en verde. |
-| **v1** | App local en `/addons` del box (Dockerfile multi-stage: build Go → imagen base con `git` y `openssh-client`), sin UI. Disparadores: schedule + `stdin`. Notificaciones y eventos en HA. | Una semana de sync real en una Raspberry Pi sin intervención, con al menos un conflicto resuelto de punta a punta. |
-| **v2** | UI por ingress (estado, pendientes, conflicto, deploy key, "sync now"). Builds multi-arch (aarch64 + amd64) en CI, imágenes en GHCR, repo publicable como repo de apps (`repository.yaml`). Reinicio opcional de apps vía `hassio_api`. | Instalable desde la URL del repo en un HA limpio. |
-| **v3** | Integración HACS: sensores, botón, eventos y discovery vía Supervisor. | Publicada en HACS (default o custom repo). |
+| **v0** | Engine as a CLI (`hcs`), testable locally against a synthetic config and a local bare remote. Pluggable HA checker (fake / noop / command). | The scenario catalog in `docs/plan-v0.md` is green; E2E on the synthetic config is green. |
+| **v1** | Local app in the box's `/addons` (multi-stage Dockerfile: Go build → base image with `git` and `openssh-client`), no UI. Triggers: schedule + `stdin`. Notifications and events in HA. | One week of real sync on a Raspberry Pi without intervention, with at least one conflict resolved end to end. |
+| **v2** | Ingress UI (state, pending, conflict, deploy key, "sync now"). Multi-arch builds (aarch64 + amd64) in CI, images on GHCR, repo publishable as an app repository (`repository.yaml`). Optional app restart via `hassio_api`. | Installable from the repo URL on a clean HA. |
+| **v3** | HACS integration: sensors, button, events, and discovery via Supervisor. | Published on HACS (default or custom repo). |
 
-## 16. Qué existe hoy y por qué no alcanza
+## 16. What exists today and why it falls short
 
-| Proyecto | Qué hace bien | Por qué no alcanza |
+| Project | What it does well | Why it falls short |
 |---|---|---|
-| **Git pull** (app oficial) | Simple y mantenida. | Solo pull, pisa el box, sin merge. |
-| **HA Git Sync** (a4ng3i) | Buen diseño, el más cercano a este: sync en las dos direcciones. | Sin código público (no se puede auditar ni contribuir), solo `/config` (sin `/app_configs`), y autentica contra HA con un token de admin de larga duración. |
-| **HomeAssistantVersionControl** (saihgupr) | Historial de cambios, fácil de instalar. | Solo push (no aplica nada desde el repo), y la auth con el remoto es un token en la URL HTTPS. |
+| **Git pull** (official app) | Simple and maintained. | Pull only, overwrites the box, no merge. |
+| **HA Git Sync** (a4ng3i) | Good design, the closest to this one: sync in both directions. | No public code (cannot be audited or contributed to), only `/config` (no `/app_configs`), and it authenticates against HA with a long-lived admin token. |
+| **HomeAssistantVersionControl** (saihgupr) | Change history, easy to install. | Push only (applies nothing from the repo), and remote auth is a token in the HTTPS URL. |
 
-Lo que este proyecto agrega: sync real en las dos direcciones con merge de 3 vías y freno ante conflictos, apply condicionado al check de config, monorepo `config/` + `app_configs/`, auth solo por deploy key SSH, cero tokens de HA de larga duración y código abierto desde el día uno.
+What this project adds: real two-way sync with a 3-way merge that stops on conflicts, apply gated on the config check, a `config/` + `app_configs/` monorepo, SSH deploy key as the only auth, zero long-lived HA tokens, and open source from day one.
 
-> Fuente de la comparación: un relevamiento de noviembre de 2026. Conviene revalidarla antes de publicar v2.
+> Source of the comparison: a survey from November 2026. It should be revalidated before publishing v2.
 
-## 17. Decisiones tomadas
+## 17. Decisions made
 
-### Para v1–v3 (2026-11-12)
+### For v1–v3 (2026-11-12)
 
-- **Idioma:** todo en inglés (docs, UI, CLI, logs, notificaciones, comentarios).
-- **Nombre visible:** "Git Config Sync". El slug de la app sigue siendo `homeassistant_config_sync`.
-- **Dominio de la integración (v3):** `config_sync`.
-- **Releases:** un tag `vX.Y.Z` (desde `v0.0.1`) dispara el CI/CD: tests completos (incluidas las pruebas con Docker), build multi-arch, imágenes en GHCR y release de GitHub. El repo es público.
-- **CI por push:** lint, tests con `-race` y E2E con checker noop. Lo pesado solo en el release (o a mano).
-- **Automatizaciones inválidas después del reload:** si aparecen automatizaciones nuevas en `unavailable`, se revierten los archivos, se recarga de nuevo y el estado pasa a `rejected`.
-- **Apps de `app_configs`:** no se reinician; se avisa cuáles conviene reiniciar (permisos mínimos).
-- **`pull_only`:** se implementa. El box descarta sus ediciones locales a favor de `main`, que quedan guardadas en la rama `box`.
-- **UI por ingress:** Lit con un paso de build (node vía mise).
+- **Language:** everything in English (docs, UI, CLI, logs, notifications, comments).
+- **Display name:** "Git Config Sync". The app slug stays `homeassistant_config_sync`.
+- **Integration domain (v3):** `config_sync`.
+- **Releases:** a `vX.Y.Z` tag (starting at `v0.0.1`) triggers CI/CD: full tests (including the Docker tests), multi-arch build, images on GHCR, and a GitHub release. The repo is public.
+- **CI on push:** lint, tests with `-race`, and E2E with the noop checker. The heavy parts run only on release (or by hand).
+- **Invalid automations after the reload:** if new automations show up as `unavailable`, the files are reverted, HA is reloaded again, and the state becomes `rejected`.
+- **`app_configs` apps:** not restarted; the engine reports which ones should be restarted (minimal permissions).
+- **`pull_only`:** will be implemented. The box discards its local edits in favor of `main`; they stay saved in the `box` branch.
+- **Ingress UI:** Lit with a build step (node via mise).
 
-### Para v0 (2026-11-11)
+### For v0 (2026-11-11)
 
-1. **Licencia:** MIT. El repo arranca privado y se hace público cuando haya código.
-2. **Nombres:** slug `homeassistant_config_sync`, binario `hcs`.
+1. **License:** MIT. The repo starts private and goes public once there is code.
+2. **Names:** slug `homeassistant_config_sync`, binary `hcs`.
 3. **Defaults:** `sync_interval_minutes: 5`, `mode: bidirectional`.
-4. **`custom_components/**`:** opt-in, fuera por defecto. Quien lo incluya asume que escribir a `main` es ejecutar código en HA (§14).
-5. **Un solo repo** para el motor, la app y la integración:
+4. **`custom_components/**`:** opt-in, off by default. Whoever includes it accepts that writing to `main` means running code in HA (§14).
+5. **A single repo** for the engine, the app, and the integration:
 
    ```
-   repository.yaml                      repo de apps (v2)
-   homeassistant_config_sync/           carpeta de la app: config.yaml, Dockerfile, DOCS.md (v1)
-   custom_components/homeassistant_config_sync/   integración (v3)
+   repository.yaml                      app repository (v2)
+   homeassistant_config_sync/           app folder: config.yaml, Dockerfile, DOCS.md (v1)
+   custom_components/homeassistant_config_sync/   integration (v3)
    hacs.json                            (v3)
-   cmd/hcs/, internal/, go.mod          el motor (v0)
+   cmd/hcs/, internal/, go.mod          the engine (v0)
    docs/
    ```
 
-   El Supervisor solo mira `repository.yaml` y las carpetas con `config.yaml`; HACS solo mira `custom_components/` y `hacs.json`. El módulo Go en la raíz no molesta a ninguno de los dos.
+   The Supervisor only looks at `repository.yaml` and folders with a `config.yaml`; HACS only looks at `custom_components/` and `hacs.json`. The Go module at the root bothers neither.

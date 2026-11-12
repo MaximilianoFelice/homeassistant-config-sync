@@ -9,9 +9,9 @@ import (
 	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/config"
 )
 
-// Los secretos de prueba se arman en runtime (pseudoaleatorios con semilla
-// fija, para que tengan la entropía de uno real) así este archivo no dispara
-// ni la push protection de GitHub ni un escaneo del propio repo.
+// Test secrets are built at runtime (pseudorandom with a fixed seed, so they
+// have the entropy of a real one) so this file triggers neither GitHub push
+// protection nor a scan of this repo.
 var (
 	fakeGitHubPAT = "gh" + "p_" + randChars(1, 36, alnum)
 	fakePEM       = "-----BEGIN " + "RSA PRIVATE KEY-----\n" +
@@ -27,7 +27,7 @@ const (
 )
 
 func randChars(seed int64, n int, alphabet string) string {
-	r := rand.New(rand.NewSource(seed)) //nolint:gosec // datos de prueba
+	r := rand.New(rand.NewSource(seed)) //nolint:gosec // test data
 	b := make([]byte, n)
 	for i := range b {
 		b[i] = alphabet[r.Intn(len(alphabet))]
@@ -55,21 +55,21 @@ func TestScanFindsSecrets(t *testing.T) {
 		name    string
 		path    string
 		content string
-		secret  string // lo que nunca puede aparecer en la salida
+		secret  string // what must never appear in the output
 		want    []hit
 	}{
 		{
-			"password literal en YAML", "config/configuration.yaml",
+			"literal password in YAML", "config/configuration.yaml",
 			"http:\n  api_password: " + fakePassword + "\n",
 			fakePassword, []hit{{2, RuleHALiteral, Block}},
 		},
 		{
-			"token anidado en una lista", "config/sensors.yaml",
+			"token nested in a list", "config/sensors.yaml",
 			"- platform: rest\n  resource: http://x/api\n  headers:\n    x: y\n  token: " + fakePassword + "\n",
 			fakePassword, []hit{{5, RuleHALiteral, Block}},
 		},
 		{
-			"password numérico", "config/alarm.yaml",
+			"numeric password", "config/alarm.yaml",
 			"alarm:\n  password: 482913\n",
 			"482913", []hit{{2, RuleHALiteral, Block}},
 		},
@@ -79,24 +79,24 @@ func TestScanFindsSecrets(t *testing.T) {
 			fakePassword, []hit{{3, RuleHALiteral, Block}},
 		},
 		{
-			"URL con credenciales", "config/cameras.yaml",
+			"URL with credentials", "config/cameras.yaml",
 			"camera:\n  - platform: generic\n    still_image_url: http://admin:" + fakePassword + "@10.0.0.5/snap.jpg\n",
 			fakePassword, []hit{{3, RuleURLWithCreds, Block}},
 		},
 		{
-			"token de GitHub (gitleaks)", "config/scripts/deploy.sh",
+			"GitHub token (gitleaks)", "config/scripts/deploy.sh",
 			"#!/bin/sh\nexport GH=" + fakeGitHubPAT + "\n",
 			fakeGitHubPAT, []hit{{2, "github-pat", Block}},
 		},
 		{
-			"clave privada (gitleaks)", "app_configs/x/key.conf",
+			"private key (gitleaks)", "app_configs/x/key.conf",
 			"ssl on\n" + fakePEM,
 			fakePEMBody, []hit{{2, "private-key", Block}},
 		},
 		{
-			"webhook_id es advertencia", "config/automations.yaml",
-			"- id: '1'\n  trigger:\n    - platform: webhook\n      webhook_id: abre-el-porton-xyz\n",
-			"abre-el-porton-xyz", []hit{{4, RuleHAWebhookID, Warn}},
+			"webhook_id is a warning", "config/automations.yaml",
+			"- id: '1'\n  trigger:\n    - platform: webhook\n      webhook_id: open-the-gate-xyz\n",
+			"open-the-gate-xyz", []hit{{4, RuleHAWebhookID, Warn}},
 		},
 	}
 	s := scanner(t, config.SecretScan{WebhookID: Warn})
@@ -111,18 +111,18 @@ func TestScanFindsSecrets(t *testing.T) {
 					}
 				}
 				if !found {
-					t.Errorf("faltó %+v; hallazgos: %+v", w, got)
+					t.Errorf("missing %+v; findings: %+v", w, got)
 				}
 			}
-			// El valor nunca aparece en la salida.
+			// The value never appears in the output.
 			_, err := s.Check(map[string][]byte{tt.path: []byte(tt.content)})
 			for _, f := range got {
 				if strings.Contains(f.String(), tt.secret) {
-					t.Errorf("el hallazgo expone el valor: %s", f)
+					t.Errorf("the finding exposes the value: %s", f)
 				}
 			}
 			if err != nil && strings.Contains(err.Error(), tt.secret) {
-				t.Errorf("el error expone el valor: %v", err)
+				t.Errorf("the error exposes the value: %v", err)
 			}
 		})
 	}
@@ -131,7 +131,7 @@ func TestScanFindsSecrets(t *testing.T) {
 func TestScanIgnoresSafeConfig(t *testing.T) {
 	files := map[string]string{
 		"config/configuration.yaml": `homeassistant:
-  name: Casa
+  name: Home
   latitude: !secret latitude
 http:
   api_password: !secret http_password
@@ -142,7 +142,7 @@ recorder:
   db_url: !secret db_url
 template:
   - sensor:
-      - name: token actual
+      - name: current token
         state: "{{ states('input_text.token') }}"
 notify:
   - platform: rest
@@ -151,17 +151,17 @@ notify:
     verify_ssl: true
 `,
 		"config/automations.yaml": `- id: '1699999999999'
-  alias: Luz del pasillo
+  alias: Hallway light
   trigger:
     - platform: device
       device_id: 4f9a8c1e2b3d4e5f6a7b8c9d0e1f2a3b
       domain: binary_sensor
-      entity_id: binary_sensor.pasillo_movimiento
+      entity_id: binary_sensor.hallway_motion
       type: motion
   action:
     - service: light.turn_on
       target:
-        entity_id: light.pasillo
+        entity_id: light.hallway
       data:
         brightness_pct: 40
 `,
@@ -169,13 +169,13 @@ notify:
   name: X
   input:
     password:
-      name: Clave
+      name: Password
   domain: automation
 trigger:
   - platform: state
     entity_id: !input sensor
 `,
-		"config/.storage/lovelace": `{"version": 1, "data": {"config": {"views": [{"title": "Casa", "cards": [{"type": "entities", "entities": ["light.pasillo"]}]}]}}}`,
+		"config/.storage/lovelace": `{"version": 1, "data": {"config": {"views": [{"title": "Home", "cards": [{"type": "entities", "entities": ["light.hallway"]}]}]}}}`,
 		"config/esphome/living.yaml": `esphome:
   name: living
 api:
@@ -195,10 +195,10 @@ wifi:
 	s := scanner(t, config.SecretScan{WebhookID: Warn})
 	warnings, err := s.Check(contents)
 	if err != nil {
-		t.Errorf("falsos positivos bloqueantes: %v", err)
+		t.Errorf("blocking false positives: %v", err)
 	}
 	if len(warnings) != 0 {
-		t.Errorf("advertencias inesperadas: %+v", warnings)
+		t.Errorf("unexpected warnings: %+v", warnings)
 	}
 }
 
@@ -206,7 +206,7 @@ func TestWebhookIDCanBlock(t *testing.T) {
 	s := scanner(t, config.SecretScan{WebhookID: Block})
 	_, err := s.Check(map[string][]byte{"config/a.yaml": []byte("trigger:\n  webhook_id: abc123\n")})
 	if !errors.Is(err, ErrSecretsFound) {
-		t.Errorf("con webhook_id: block quería bloqueo, dio %v", err)
+		t.Errorf("with webhook_id: block wanted a block, got %v", err)
 	}
 }
 
@@ -216,7 +216,7 @@ func TestAllowFingerprint(t *testing.T) {
 	_, err := s.Check(map[string][]byte{"config/rest.yaml": content})
 	var be *BlockedError
 	if !errors.As(err, &be) || len(be.Findings) != 1 {
-		t.Fatalf("quería un hallazgo, dio %v", err)
+		t.Fatalf("wanted one finding, got %v", err)
 	}
 	fp := be.Findings[0].Fingerprint
 	if len(fp) != 64 {
@@ -225,29 +225,29 @@ func TestAllowFingerprint(t *testing.T) {
 
 	allowed := scanner(t, config.SecretScan{Allow: []string{fp}})
 	if _, err := allowed.Check(map[string][]byte{"config/rest.yaml": content}); err != nil {
-		t.Errorf("con el fingerprint permitido no debería bloquear: %v", err)
+		t.Errorf("with the fingerprint allowed it should not block: %v", err)
 	}
-	// Mover el mismo archivo a otro path invalida la excepción…
-	if _, err := allowed.Check(map[string][]byte{"config/otro.yaml": content}); err == nil {
-		t.Error("otro path no debería heredar la excepción")
+	// Moving the same file to another path invalidates the exception…
+	if _, err := allowed.Check(map[string][]byte{"config/other.yaml": content}); err == nil {
+		t.Error("another path should not inherit the exception")
 	}
-	// …y editar la línea también.
+	// …and so does editing the line.
 	edited := []byte("rest:\n  password: " + fakePassword + "-v2\n")
 	if _, err := allowed.Check(map[string][]byte{"config/rest.yaml": edited}); err == nil {
-		t.Error("editar la línea debería invalidar la excepción")
+		t.Error("editing the line should invalidate the exception")
 	}
-	// Agregar líneas arriba no la invalida (no depende del número de línea).
-	moved := append([]byte("# comentario\n"), content...)
+	// Adding lines above does not invalidate it (it does not depend on the line number).
+	moved := append([]byte("# comment\n"), content...)
 	if _, err := allowed.Check(map[string][]byte{"config/rest.yaml": moved}); err != nil {
-		t.Errorf("mover la línea no debería invalidar la excepción: %v", err)
+		t.Errorf("moving the line should not invalidate the exception: %v", err)
 	}
 }
 
 func TestBrokenYAMLStillRunsGitleaks(t *testing.T) {
 	s := scanner(t, config.SecretScan{})
-	content := []byte("a: [roto\nexport GH=" + fakeGitHubPAT + "\n")
+	content := []byte("a: [broken\nexport GH=" + fakeGitHubPAT + "\n")
 	if _, err := s.Check(map[string][]byte{"config/x.yaml": content}); !errors.Is(err, ErrSecretsFound) {
-		t.Errorf("un YAML roto igual tiene que pasar por gitleaks: %v", err)
+		t.Errorf("broken YAML must still go through gitleaks: %v", err)
 	}
 }
 
@@ -258,7 +258,7 @@ func TestSensitiveKeys(t *testing.T) {
 		"token_type": false, "secrets": false, "bypass": false, "passive": false, "keyboard": false,
 	} {
 		if got := sensitive(k); got != want {
-			t.Errorf("sensitive(%q) = %v, quería %v", k, got, want)
+			t.Errorf("sensitive(%q) = %v, want %v", k, got, want)
 		}
 	}
 }
