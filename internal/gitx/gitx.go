@@ -1,9 +1,11 @@
-// Package gitx wraps the git CLI for the engine: always on a bare repo,
-// always with an isolated environment (no global or system config, no
-// hooks, no credential helpers, no SSH agent) and with protocols
-// restricted to SSH (design.md §9). Tests also enable file://.
+// Package gitx wraps the git CLI for the engine: a bare repo in the app's
+// state dir, always with an isolated environment (no global or system
+// config, no hooks, no credential helpers) and with protocols restricted to
+// HTTPS. Tests also enable file://.
 //
-// Everything is done with plumbing: the engine never has a working tree.
+// The repo is bare; WorkTree runs git against a work tree and an index that
+// live elsewhere (the mounted folders and the state dir), so no .git is ever
+// written into the synced folders.
 package gitx
 
 import (
@@ -27,16 +29,39 @@ const ZeroOID = "0000000000000000000000000000000000000000"
 // author of merges.
 const EngineIdent = "homeassistant-config-sync <noreply@homeassistant-config-sync.invalid>"
 
+// DefaultUsername is sent with the token when no username is configured.
+// GitHub and most hosts only look at the token.
+const DefaultUsername = "x-access-token"
+
 // Options configures how git is invoked.
 type Options struct {
-	// AllowFile enables file:// remotes and local paths (v0 and tests).
+	// AllowFile enables file:// remotes and local paths (tests).
 	AllowFile bool
-	// SSHKey is the deploy key's private key. Empty = no SSH.
-	SSHKey string
-	// KnownHosts is the fixed known_hosts file.
-	KnownHosts string
+	// AllowHTTP enables plain http:// remotes (tests only).
+	AllowHTTP bool
+	// Token is the HTTPS access token. It reaches git only through the
+	// askpass program's environment: never the URL, the config or argv.
+	Token string
+	// Username goes with the token. Empty = DefaultUsername.
+	Username string
+	// AskPass is the askpass program (see WriteAskPass). Required for a token.
+	AskPass string
 	// GitBinary selects the git executable. Empty = "git" from PATH.
 	GitBinary string
+}
+
+// askPassScript answers git's prompts from the environment, so the token is
+// never written to disk.
+const askPassScript = `#!/bin/sh
+case "$1" in
+  Username*) printf '%s\n' "$HCS_GIT_USERNAME" ;;
+  *) printf '%s\n' "$HCS_GIT_TOKEN" ;;
+esac
+`
+
+// WriteAskPass writes the askpass program to path (it holds no secrets).
+func WriteAskPass(path string) error {
+	return os.WriteFile(path, []byte(askPassScript), 0o700)
 }
 
 // Repo is a bare repo managed by the engine.
@@ -88,36 +113,27 @@ func Open(dir string, opts Options) *Repo {
 func (r *Repo) Dir() string { return r.dir }
 
 // Env returns the environment git runs with: built from scratch, not
-// inherited. In particular SSH_AUTH_SOCK, GIT_* and the user's config do
-// not pass through.
+// inherited. In particular GIT_*, credential helpers and the user's config
+// do not pass through.
 func (r *Repo) Env() []string {
 	env := []string{
 		"PATH=" + os.Getenv("PATH"),
-		"HOME=" + r.dir, // no user ~/.gitconfig or ~/.ssh
+		"HOME=" + r.dir, // no user ~/.gitconfig or ~/.git-credentials
 		"LC_ALL=C",
 		"GIT_CONFIG_NOSYSTEM=1",
 		"GIT_CONFIG_GLOBAL=" + os.DevNull,
 		"GIT_TERMINAL_PROMPT=0",
-		"GIT_ASKPASS=/bin/false",
-		"SSH_ASKPASS=/bin/false",
 		"GIT_DIR=" + r.dir,
 	}
-	ssh := []string{
-		"ssh", "-F", os.DevNull,
-		"-o", "BatchMode=yes",
-		"-o", "IdentitiesOnly=yes",
-		"-o", "IdentityAgent=none",
-		"-o", "StrictHostKeyChecking=yes",
-	}
-	if r.opts.KnownHosts != "" {
-		ssh = append(ssh, "-o", "UserKnownHostsFile="+shellQuote(r.opts.KnownHosts))
+	if r.opts.Token != "" && r.opts.AskPass != "" {
+		user := r.opts.Username
+		if user == "" {
+			user = DefaultUsername
+		}
+		env = append(env, "GIT_ASKPASS="+r.opts.AskPass, "HCS_GIT_USERNAME="+user, "HCS_GIT_TOKEN="+r.opts.Token)
 	} else {
-		ssh = append(ssh, "-o", "UserKnownHostsFile="+os.DevNull)
+		env = append(env, "GIT_ASKPASS=/bin/false")
 	}
-	if r.opts.SSHKey != "" {
-		ssh = append(ssh, "-i", shellQuote(r.opts.SSHKey))
-	}
-	env = append(env, "GIT_SSH_COMMAND="+strings.Join(ssh, " "))
 	return env
 }
 
@@ -125,15 +141,19 @@ func (r *Repo) Env() []string {
 func (r *Repo) configArgs() []string {
 	args := []string{
 		"-c", "protocol.allow=never",
-		"-c", "protocol.ssh.allow=always",
+		"-c", "protocol.https.allow=always",
 		"-c", "credential.helper=",
 		"-c", "core.hooksPath=" + os.DevNull,
 		"-c", "core.fsmonitor=false",
 		"-c", "core.autocrlf=false",
+		"-c", "core.quotePath=false",
 		"-c", "gc.auto=0",
 	}
 	if r.opts.AllowFile {
 		args = append(args, "-c", "protocol.file.allow=always")
+	}
+	if r.opts.AllowHTTP {
+		args = append(args, "-c", "protocol.http.allow=always")
 	}
 	return args
 }
@@ -180,14 +200,15 @@ func (r *Repo) Version(ctx context.Context) (major, minor int, err error) {
 	return major, minor, nil
 }
 
-// RequireVersion fails if git is older than 2.38 (merge-tree --write-tree).
+// RequireVersion fails if git is older than 2.42 (merge-tree --write-tree
+// needs 2.38, --attr-source 2.42).
 func (r *Repo) RequireVersion(ctx context.Context) error {
 	major, minor, err := r.Version(ctx)
 	if err != nil {
 		return err
 	}
-	if major < 2 || (major == 2 && minor < 38) {
-		return fmt.Errorf("git >= 2.38 is required, found %d.%d", major, minor)
+	if major < 2 || (major == 2 && minor < 42) {
+		return fmt.Errorf("git >= 2.42 is required, found %d.%d", major, minor)
 	}
 	return nil
 }
@@ -266,6 +287,42 @@ func (r *Repo) WriteBlob(ctx context.Context, content []byte) (string, error) {
 // ReadBlob returns a blob's content.
 func (r *Repo) ReadBlob(ctx context.Context, oid string) ([]byte, error) {
 	return r.run(ctx, nil, "cat-file", "blob", oid)
+}
+
+// ReadBlobs returns the content of several blobs with a single git process.
+func (r *Repo) ReadBlobs(ctx context.Context, oids []string) (map[string][]byte, error) {
+	blobs := map[string][]byte{}
+	if len(oids) == 0 {
+		return blobs, nil
+	}
+	out, err := r.run(ctx, strings.NewReader(strings.Join(oids, "\n")+"\n"), "cat-file", "--batch")
+	if err != nil {
+		return nil, err
+	}
+	for len(out) > 0 {
+		header, rest, ok := bytes.Cut(out, []byte{'\n'})
+		if !ok {
+			return nil, fmt.Errorf("cat-file: truncated output")
+		}
+		f := strings.Fields(string(header))
+		if len(f) == 2 && f[1] == "missing" {
+			out = rest
+			continue
+		}
+		if len(f) != 3 {
+			return nil, fmt.Errorf("cat-file: unexpected header %q", header)
+		}
+		n, err := strconv.Atoi(f[2])
+		if err != nil || n > len(rest) {
+			return nil, fmt.Errorf("cat-file: unexpected header %q", header)
+		}
+		blobs[f[0]] = rest[:n]
+		out = rest[n:]
+		if len(out) > 0 && out[0] == '\n' {
+			out = out[1:]
+		}
+	}
+	return blobs, nil
 }
 
 // HasObject reports whether the object exists in the repo.
@@ -402,9 +459,77 @@ func (r *Repo) UpdateRef(ctx context.Context, ref, newOID, oldOID string) error 
 func (r *Repo) Fetch(ctx context.Context, url string, refspecs ...string) error {
 	args := append([]string{"fetch", "--quiet", "--no-tags", "--prune", "--end-of-options", url}, refspecs...)
 	_, err := r.run(ctx, nil, args...)
-	return err
+	return authError(err)
 }
 
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+// EmptyTree is the OID of the empty tree (SHA-1).
+const EmptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+
+// Change is a path that differs between two trees.
+type Change struct {
+	// Status is git's letter: A (added), M (modified), D (deleted), T (type
+	// changed, e.g. file to symlink).
+	Status string `json:"status"`
+	Path   string `json:"path"`
+	// OID is the new blob ("" for deletions).
+	OID string `json:"-"`
+}
+
+// DiffTrees lists the paths that differ between two trees (or commits).
+// "" stands for the empty tree. Renames are reported as delete + add.
+func (r *Repo) DiffTrees(ctx context.Context, from, to string) ([]Change, error) {
+	if from == "" {
+		from = EmptyTree
+	}
+	if to == "" {
+		to = EmptyTree
+	}
+	out, err := r.run(ctx, nil, "diff-tree", "-r", "-z", "--no-renames", "--raw", "--end-of-options", from, to)
+	if err != nil {
+		return nil, err
+	}
+	return parseRaw(out)
+}
+
+// parseRaw parses `--raw -z` output: ":<mode> <mode> <oid> <oid> <status>\0<path>\0"...
+func parseRaw(out []byte) ([]Change, error) {
+	var changes []Change
+	fields := bytes.Split(out, []byte{0})
+	for i := 0; i+1 < len(fields); i += 2 {
+		meta := strings.Fields(strings.TrimPrefix(string(fields[i]), ":"))
+		if len(meta) != 5 {
+			return nil, fmt.Errorf("diff: unexpected record %q", fields[i])
+		}
+		c := Change{Status: meta[4][:1], Path: string(fields[i+1])}
+		if c.Status != "D" {
+			c.OID = meta[3]
+		}
+		changes = append(changes, c)
+	}
+	return changes, nil
+}
+
+// ObjectSizes returns the size of each object.
+func (r *Repo) ObjectSizes(ctx context.Context, oids []string) (map[string]int64, error) {
+	sizes := map[string]int64{}
+	if len(oids) == 0 {
+		return sizes, nil
+	}
+	in := strings.Join(oids, "\n") + "\n"
+	out, err := r.run(ctx, strings.NewReader(in), "cat-file", "--batch-check=%(objectname) %(objectsize)")
+	if err != nil {
+		return nil, err
+	}
+	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
+		oid, size, ok := strings.Cut(line, " ")
+		if !ok {
+			continue
+		}
+		n, err := strconv.ParseInt(size, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("cat-file: unexpected line %q", line)
+		}
+		sizes[oid] = n
+	}
+	return sizes, nil
 }

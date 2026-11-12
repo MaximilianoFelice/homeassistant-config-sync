@@ -6,12 +6,20 @@
         "state": {
           "idle": "mdi:source-branch-check",
           "conflict": "mdi:source-branch-remove",
-          "rejected": "mdi:source-branch-remove",
-          "blocked_secrets": "mdi:shield-key"
+          "review": "mdi:source-pull",
+          "mass_delete": "mdi:delete-alert",
+          "too_large": "mdi:file-alert",
+          "path_collision": "mdi:folder-alert",
+          "blocked_secrets": "mdi:shield-key",
+          "check_failed": "mdi:file-document-alert",
+          "error": "mdi:alert-circle"
         }
       },
       "last_sync": {
         "default": "mdi:clock-check-outline"
+      },
+      "secret_findings": {
+        "default": "mdi:shield-key"
       }
     },
     "binary_sensor": {

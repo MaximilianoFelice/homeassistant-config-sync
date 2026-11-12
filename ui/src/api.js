@@ -53,8 +53,6 @@ export const api = {
   conflict: () => request("GET", "conflict"),
   sync: (opts = {}) => request("POST", "sync", opts),
   job: (id) => request("GET", `jobs/${encodeURIComponent(id)}`),
-  deployKey: () => request("GET", "deploy-key"),
-  rotateKey: () => request("POST", "deploy-key/rotate"),
 };
 
 /**

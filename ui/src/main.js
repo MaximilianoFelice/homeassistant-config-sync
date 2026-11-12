@@ -1,18 +1,18 @@
 import { LitElement, css, html, nothing } from "lit";
 import { api, onServerEvents } from "./api.js";
-import { changeKind, findingLine, planRows, relativeTime, shortSha, stateInfo } from "./format.js";
+import { REVIEWS, changeKind, findingLine, relativeTime, shortSha, stateInfo } from "./format.js";
 
 /**
  * The whole UI is one element: a status card with the actions, a panel for
- * whatever needs attention in the current state, the dry-run preview, and the
- * deploy key. It refreshes on server events (or by polling).
+ * whatever needs attention in the current state, the secret scanner's
+ * findings and the dry-run preview. It refreshes on server events (or by
+ * polling).
  */
 class GcsApp extends LitElement {
   static properties = {
     status: { state: true },
     conflict: { state: true },
     preview: { state: true },
-    deployKey: { state: true },
     busy: { state: true },
     message: { state: true },
     error: { state: true },
@@ -24,7 +24,6 @@ class GcsApp extends LitElement {
     this.status = null;
     this.conflict = null;
     this.preview = null;
-    this.deployKey = "";
     this.busy = "";
     this.message = "";
     this.error = "";
@@ -34,7 +33,6 @@ class GcsApp extends LitElement {
   connectedCallback() {
     super.connectedCallback();
     this.refresh();
-    this.loadKey();
     this.stopEvents = onServerEvents(() => this.refresh());
     this.clock = setInterval(() => (this.now = Date.now()), 30000);
   }
@@ -52,14 +50,6 @@ class GcsApp extends LitElement {
       this.error = "";
     } catch (e) {
       this.error = `Could not load the status: ${e.message}`;
-    }
-  }
-
-  async loadKey() {
-    try {
-      this.deployKey = (await api.deployKey()).public_key;
-    } catch {
-      this.deployKey = "";
     }
   }
 
@@ -99,25 +89,6 @@ class GcsApp extends LitElement {
     }
   }
 
-  async rotate() {
-    if (!confirm("Generate a new deploy key? The app stops using the current one right away; add the new key on GitHub and remove the old one.")) return;
-    try {
-      this.deployKey = (await api.rotateKey()).public_key;
-      this.message = "New deploy key generated. Add it on GitHub (Settings → Deploy keys, with write access).";
-    } catch (e) {
-      this.message = `Could not rotate the key: ${e.message}`;
-    }
-  }
-
-  async copyKey() {
-    try {
-      await navigator.clipboard.writeText(this.deployKey);
-      this.message = "Deploy key copied.";
-    } catch {
-      this.renderRoot.querySelector("#key")?.select();
-    }
-  }
-
   render() {
     const st = this.status;
     const info = stateInfo(st?.state, st?.syncing || this.busy === "Syncing");
@@ -130,8 +101,9 @@ class GcsApp extends LitElement {
       ${this.message ? html`<p class="banner">${this.message}</p>` : nothing}
       ${st ? this.renderStatus(st, info) : html`<p class="muted">Loading…</p>`}
       ${st ? this.renderAttention(st) : nothing}
+      ${st?.findings?.length ? this.renderFindings(st.findings) : nothing}
+      ${st?.check_warnings?.length && st.state !== "check_failed" ? this.renderCheckWarnings(st.check_warnings) : nothing}
       ${this.preview ? this.renderPreview(this.preview) : nothing}
-      ${this.renderKey()}
     `;
   }
 
@@ -153,9 +125,6 @@ class GcsApp extends LitElement {
         <div class="actions">
           <button class="primary" ?disabled=${disabled} @click=${() => this.runSync()}>Sync now</button>
           <button ?disabled=${disabled} @click=${() => this.runPreview()}>Preview</button>
-          ${st.state === "bootstrap_review"
-            ? html`<button ?disabled=${disabled} @click=${() => this.runSync({ accept_bootstrap: true }, "Syncing")}>Accept first sync</button>`
-            : nothing}
           ${this.busy ? html`<span class="muted">${this.busy}…</span>` : nothing}
         </div>
       </section>
@@ -163,48 +132,62 @@ class GcsApp extends LitElement {
   }
 
   renderAttention(st) {
+    const list = (items) => html`<ul class="mono">${(items ?? []).map((p) => html`<li>${p}</li>`)}</ul>`;
     switch (st.state) {
       case "conflict":
         return html`
           <section class="card error">
             <h2>Conflict</h2>
-            <p>These files changed on both sides. The box branch was pushed with the box version; merge <code>box</code> into <code>main</code> (locally or on GitHub) and the next sync continues.</p>
-            <ul class="mono">${(st.conflict_paths ?? []).map((p) => html`<li>${p}</li>`)}</ul>
+            <p>These files changed on both sides. The <code>box</code> branch was pushed with the box's version; merge it into <code>main</code> like any branch and the next sync continues. To resolve this kind of conflict automatically, set <code>merge_options</code> (for example <code>theirs</code>) or a <code>merge=</code> rule in the repo's <code>.gitattributes</code>.</p>
+            ${list(st.conflict_paths)}
             ${this.conflict?.compare_url ? html`<a href=${this.conflict.compare_url} target="_blank" rel="noopener">Open the comparison on GitHub</a>` : nothing}
           </section>
         `;
-      case "rejected":
+      case "review":
+        return html`
+          <section class="card warn">
+            <h2>Review needed</h2>
+            <p>${REVIEWS[st.review] ?? ""}${st.review === "root_changed" && st.prev_root ? html` (was <code>${st.prev_root}</code>)` : nothing}</p>
+            <p>Only the <code>box</code> branch was pushed, on top of <code>main</code>: comparing them shows exactly how this box differs. Leave the real state in <code>main</code> by merging <code>box</code> (to keep <code>main</code> as it is, <code>git merge -s ours box</code>). Syncing resumes after that.</p>
+          </section>
+        `;
+      case "mass_delete":
+        return html`
+          <section class="card warn">
+            <h2>Many deletions held back</h2>
+            <p>Applying <code>main</code> would delete ${st.deleted?.length ?? 0} files on this box. Nothing was applied. If it is intended, raise <code>delete_guard_files</code> or <code>delete_guard_percent</code> for one sync.</p>
+            ${list(st.deleted?.slice(0, 50))}
+          </section>
+        `;
+      case "too_large":
+        return html`
+          <section class="card warn">
+            <h2>File too large</h2>
+            <p>Nothing was committed. Add these files to the repo's <code>.gitignore</code>, or raise <code>max_file_size_mb</code>.</p>
+            ${list(st.too_large)}
+          </section>
+        `;
+      case "path_collision":
         return html`
           <section class="card error">
-            <h2>Change rejected</h2>
-            <p>The change from main was rolled back. It is not retried until main changes.</p>
-            <pre>${st.last_error || st.rejected?.errors || ""}</pre>
+            <h2>Path collides with the app</h2>
+            <p><code>main</code> adds top-level paths that already exist in the app's container. Nothing was applied; move or rename them in <code>main</code>.</p>
+            ${list(st.collisions)}
           </section>
         `;
       case "blocked_secrets":
         return html`
           <section class="card error">
             <h2>Possible secrets</h2>
-            <p>Nothing was committed or pushed. Move these values to <code>secrets.yaml</code> and use <code>!secret</code>, or add the fingerprint to <code>secret_scan.allow</code> if it is a false positive.</p>
-            <ul class="mono">
-              ${(st.findings ?? []).map((f) => html`<li>${findingLine(f)} <span class="muted">${f.fingerprint}</span></li>`)}
-            </ul>
+            <p>Nothing was committed because <code>secret_scan.mode</code> is <code>block</code>. See the findings below.</p>
           </section>
         `;
-      case "bootstrap_review":
+      case "check_failed":
         return html`
-          <section class="card warn">
-            <h2>Review the first sync</h2>
-            <p>The <code>box</code> branch on the repo shows exactly how this Home Assistant differs from <code>main</code>. Merge it into main, or use <em>Accept first sync</em> to make main match this box.</p>
-          </section>
-        `;
-      case "suspicious_snapshot":
-        return html`
-          <section class="card warn">
-            <h2>Snapshot stopped</h2>
-            <pre>${st.last_error}</pre>
-            <p>If the deletions are intended, confirm them once:</p>
-            <button ?disabled=${Boolean(this.busy)} @click=${() => confirm("Commit the deletions from this box?") && this.runSync({ allow_mass_delete: true })}>Sync allowing the deletions</button>
+          <section class="card error">
+            <h2>Home Assistant's config has errors</h2>
+            <p>The changes from <code>main</code> were applied, but the config check reported errors, so Home Assistant was not reloaded. Fix them in <code>main</code>; the check is repeated every sync until it passes.</p>
+            <pre>${st.check_errors}</pre>
           </section>
         `;
       case "error":
@@ -219,48 +202,42 @@ class GcsApp extends LitElement {
     }
   }
 
-  renderPreview(rep) {
-    const toBox = planRows(rep.plan);
+  renderFindings(findings) {
     return html`
-      <section class="card">
-        <h2>Preview <button class="link" @click=${() => (this.preview = null)}>close</button></h2>
-        <p class="muted">What a sync would do now. Nothing was written.</p>
-        ${rep.merge_kind ? html`<p>Merge: <code>${rep.merge_kind}</code></p>` : nothing}
-        <h3>From the box to the repo</h3>
-        ${rep.changes?.length
-          ? html`<ul class="mono">${rep.changes.map((c) => html`<li>${changeKind(c.kind)} ${c.path}</li>`)}</ul>`
-          : html`<p class="muted">Nothing.</p>`}
-        <h3>From main to the box</h3>
-        ${toBox.length
-          ? html`<ul class="mono">${toBox.map((r) => html`<li>${r.kind} ${r.path}</li>`)}</ul>`
-          : html`<p class="muted">Nothing.</p>`}
-        ${rep.conflict_paths?.length
-          ? html`<h3>Would conflict</h3><ul class="mono">${rep.conflict_paths.map((p) => html`<li>${p}</li>`)}</ul>`
-          : nothing}
-        ${rep.skipped?.length
-          ? html`<h3>Skipped</h3><ul class="mono">${rep.skipped.map((s) => html`<li>${s.repo_path} (${s.reason})</li>`)}</ul>`
-          : nothing}
-        ${rep.findings?.length
-          ? html`<h3>Possible secrets</h3><ul class="mono">${rep.findings.map((f) => html`<li>${findingLine(f)}</li>`)}</ul>`
-          : nothing}
+      <section class="card warn">
+        <h2>Possible secrets in the repo</h2>
+        <p>The secret scanner found these in what is synced. Move the values out of the repo (for Home Assistant, <code>secrets.yaml</code> and <code>!secret</code>). For a false positive, add its fingerprint to the repo's <code>.gitleaksignore</code>, or end the line with a <code>gitleaks:allow</code> comment.</p>
+        <ul class="mono">
+          ${findings.map((f) => html`<li>${findingLine(f)}<br /><span class="muted">${f.fingerprint}</span></li>`)}
+        </ul>
       </section>
     `;
   }
 
-  renderKey() {
+  renderCheckWarnings(warnings) {
     return html`
       <section class="card">
-        <h2>Deploy key</h2>
-        ${this.deployKey
-          ? html`
-              <p>Add this key to your repository (GitHub → Settings → Deploy keys) with <strong>Allow write access</strong>.</p>
-              <textarea id="key" readonly rows="2" class="mono">${this.deployKey}</textarea>
-              <div class="actions">
-                <button @click=${() => this.copyKey()}>Copy</button>
-                <button @click=${() => this.rotate()}>Generate a new key</button>
-              </div>
-            `
-          : html`<p class="muted">The app has not created its deploy key yet.</p>`}
+        <h2>Config check warnings</h2>
+        <ul>${warnings.map((w) => html`<li>${w}</li>`)}</ul>
+      </section>
+    `;
+  }
+
+  renderPreview(rep) {
+    const rows = (changes) => html`<ul class="mono">${changes.map((c) => html`<li>${changeKind(c.status)} ${c.path}</li>`)}</ul>`;
+    return html`
+      <section class="card">
+        <h2>Preview <button class="link" @click=${() => (this.preview = null)}>close</button></h2>
+        <p class="muted">What a sync would do now. Nothing was written.</p>
+        <h3>From the box to the repo</h3>
+        ${rep.outgoing?.length ? rows(rep.outgoing) : html`<p class="muted">Nothing.</p>`}
+        <h3>From main to the box</h3>
+        ${rep.incoming?.length ? rows(rep.incoming) : html`<p class="muted">Nothing.</p>`}
+        ${rep.conflict_paths?.length
+          ? html`<h3>Would conflict</h3><ul class="mono">${rep.conflict_paths.map((p) => html`<li>${p}</li>`)}</ul>`
+          : nothing}
+        ${rep.too_large?.length ? html`<h3>Too large</h3><ul class="mono">${rep.too_large.map((p) => html`<li>${p}</li>`)}</ul>` : nothing}
+        ${rep.state && rep.state !== "idle" ? html`<p>Would end in: <strong>${stateInfo(rep.state).label}</strong></p>` : nothing}
       </section>
     `;
   }
@@ -397,16 +374,6 @@ class GcsApp extends LitElement {
     button:disabled {
       opacity: 0.5;
       cursor: default;
-    }
-    textarea {
-      width: 100%;
-      box-sizing: border-box;
-      resize: none;
-      background: var(--gcs-bg);
-      color: var(--gcs-text);
-      border: 1px solid var(--gcs-border);
-      border-radius: 8px;
-      padding: 8px;
     }
     a {
       color: var(--gcs-primary);

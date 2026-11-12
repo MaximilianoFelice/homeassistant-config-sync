@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/gitx"
-	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/scan"
 	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/testkit"
 )
 
@@ -29,13 +28,13 @@ func TestEnvIgnoresUserEnvironment(t *testing.T) {
 	home := t.TempDir()
 	testkit.WriteFile(t, filepath.Join(home, ".gitconfig"), "[user]\n\tname = Real User\n[core]\n\thooksPath = /tmp/hooks\n")
 	t.Setenv("HOME", home)
-	t.Setenv("SSH_AUTH_SOCK", "/tmp/agent.sock")
+	t.Setenv("GIT_ASKPASS", "/tmp/askpass")
 	t.Setenv("GIT_DIR", "/nope")
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, ".gitconfig"))
 
 	r := testkit.NewBareRepo(t)
 	env := r.Env()
-	for _, bad := range []string{"SSH_AUTH_SOCK=", "GIT_DIR=/nope", "HOME=" + home} {
+	for _, bad := range []string{"GIT_ASKPASS=/tmp/askpass", "GIT_DIR=/nope", "HOME=" + home, "HCS_GIT_TOKEN="} {
 		if slices.ContainsFunc(env, func(e string) bool { return strings.HasPrefix(e, bad) }) {
 			t.Errorf("git environment inherits %q", bad)
 		}
@@ -43,17 +42,6 @@ func TestEnvIgnoresUserEnvironment(t *testing.T) {
 	for _, want := range []string{"GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0"} {
 		if !slices.Contains(env, want) {
 			t.Errorf("%q missing from the environment", want)
-		}
-	}
-	ssh := ""
-	for _, e := range env {
-		if v, ok := strings.CutPrefix(e, "GIT_SSH_COMMAND="); ok {
-			ssh = v
-		}
-	}
-	for _, want := range []string{"IdentityAgent=none", "IdentitiesOnly=yes", "StrictHostKeyChecking=yes", "-F /dev/null"} {
-		if !strings.Contains(ssh, want) {
-			t.Errorf("GIT_SSH_COMMAND lacks %q: %s", want, ssh)
 		}
 	}
 
@@ -77,12 +65,12 @@ func TestEnvIgnoresUserEnvironment(t *testing.T) {
 	}
 }
 
-func TestRefusesNetworkProtocols(t *testing.T) {
+func TestRefusesProtocolsOtherThanHTTPS(t *testing.T) {
 	r := testkit.NewBareRepo(t)
 	for _, url := range []string{
-		"https://example.invalid/owner/repo.git",
 		"http://example.invalid/owner/repo.git",
 		"git://example.invalid/owner/repo.git",
+		"ssh://git@example.invalid/owner/repo.git",
 	} {
 		err := r.Fetch(ctx, url, "refs/heads/main:refs/remotes/origin/main")
 		if err == nil || !strings.Contains(err.Error(), "not allowed") {
@@ -203,15 +191,16 @@ func TestResolveMissingRef(t *testing.T) {
 	}
 }
 
-func TestBlobOIDMatchesGit(t *testing.T) {
+func TestWriteAndReadBlobs(t *testing.T) {
 	r := testkit.NewBareRepo(t)
 	for _, s := range []string{"", "hello\n", "no newline", "with\r\ncrlf\r\n", strings.Repeat("x", 100000)} {
 		got, err := r.WriteBlob(ctx, []byte(s))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if want := scan.BlobOID([]byte(s)); got != want {
-			t.Errorf("BlobOID(%.20q) = %s, git says %s", s, want, got)
+		blobs, err := r.ReadBlobs(ctx, []string{got, got})
+		if err != nil || string(blobs[got]) != s {
+			t.Errorf("ReadBlobs(%.20q) = %.20q, %v", s, blobs[got], err)
 		}
 		if ok, err := r.HasObject(ctx, got); err != nil || !ok {
 			t.Errorf("HasObject(%s) = %v, %v", got, ok, err)

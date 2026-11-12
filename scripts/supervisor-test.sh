@@ -17,18 +17,18 @@ scripts/build-addon.sh --stage "$PWD/.sandbox/addon-local" >/dev/null
 scripts/supervisor-dev.sh ha jobs options --ignore-conditions healthy >/dev/null
 scripts/supervisor-dev.sh ha store reload >/dev/null
 
-echo "== build and install"
-if [[ $(api GET "/addons/$slug/info" | json 'd["data"]["version"]') == None ]]; then
-  scripts/supervisor-dev.sh ha apps install "$slug" --no-progress
-else
-  scripts/supervisor-dev.sh ha apps rebuild "$slug" --no-progress
+echo "== build and install (from scratch, with the default options)"
+if [[ $(api GET "/addons/$slug/info" | json 'd["data"]["version"]') != None ]]; then
+  scripts/supervisor-dev.sh ha apps uninstall "$slug" --no-progress >/dev/null
 fi
+scripts/supervisor-dev.sh ha apps install "$slug" --no-progress
 
-echo "== options (nested schema)"
+echo "== options (schema)"
 opts=$(api GET "/addons/$slug/info" | python3 -c '
 import json,sys
 o=json.load(sys.stdin)["data"]["options"]
-o["repository"]="git@github.invalid:test/does-not-exist.git"
+o["repository"]="https://git.invalid/test/does-not-exist.git"
+o["token"]="not-a-real-token"
 print(json.dumps({"options": o}))')
 api POST "/addons/$slug/options" "$opts" | json 'd["result"]'
 api POST "/addons/$slug/options/validate" | json '"valid" if d["data"]["valid"] else d'
@@ -37,7 +37,9 @@ echo "== startup"
 api POST "/addons/$slug/restart" >/dev/null || api POST "/addons/$slug/start" >/dev/null
 sleep 10
 echo "  state: $(api GET "/addons/$slug/info" | json 'd["data"]["state"]')"
-api GET "/addons/$slug/logs" | sed -E 's/(ssh-ed25519 .{10}).*/\1…/; s/\x1b\[[0-9;]*m//g' | tail -8 | sed 's/^/  log: /'
+logs=$(api GET "/addons/$slug/logs" | sed -E 's/\x1b\[[0-9;]*m//g')
+echo "$logs" | tail -8 | sed 's/^/  log: /'
+echo "$logs" | grep -q 'not-a-real-token' && echo "  FAIL the token appears in the log" || echo "  OK   the token is not in the log"
 
 echo "== web UI and API on the internal network"
 info=$(api GET "/addons/$slug/info")

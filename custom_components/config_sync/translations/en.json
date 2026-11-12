@@ -18,7 +18,7 @@
       },
       "hassio_confirm": {
         "title": "Git Config Sync",
-        "description": "Add the Git Config Sync app as an integration? You get its sync state, a problem sensor, and a Sync now button."
+        "description": "Add the Git Config Sync app as an integration? You get its sync state, a problem sensor, the secret scanner's findings, and a Sync now button."
       },
       "reauth_confirm": {
         "title": "Git Config Sync",
@@ -45,15 +45,20 @@
           "idle": "In sync",
           "syncing": "Syncing",
           "conflict": "Conflict",
-          "rejected": "Change rejected",
+          "review": "Review needed",
+          "mass_delete": "Many deletions held back",
+          "too_large": "File too large",
+          "path_collision": "Path collides with the app",
           "blocked_secrets": "Possible secret",
-          "bootstrap_review": "Review the first sync",
-          "suspicious_snapshot": "Snapshot stopped",
+          "check_failed": "Config check failed",
           "error": "Error"
         }
       },
       "last_sync": {
         "name": "Last sync"
+      },
+      "secret_findings": {
+        "name": "Possible secrets"
       }
     },
     "binary_sensor": {

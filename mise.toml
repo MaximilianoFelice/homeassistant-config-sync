@@ -33,10 +33,6 @@ run = "go test -race ./..."
 description = "go vet + golangci-lint"
 run = ["go vet ./...", "golangci-lint run"]
 
-[tasks.fuzz]
-description = "Fuzz the parsers and matchers (outside the normal cycle)"
-run = "go test ./internal/paths -run '^$' -fuzz FuzzClassifyRepoPath -fuzztime 60s"
-
 [tasks."test:ha-core"]
 description = "HA client against a real Core in Docker (scripts/ha-core-test.sh)"
 run = "scripts/ha-core-test.sh"

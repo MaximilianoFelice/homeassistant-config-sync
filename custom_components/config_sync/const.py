@@ -17,14 +17,14 @@ STATES: Final = [
     "idle",
     "syncing",
     "conflict",
-    "rejected",
+    "review",
+    "mass_delete",
+    "too_large",
+    "path_collision",
     "blocked_secrets",
-    "bootstrap_review",
-    "suspicious_snapshot",
+    "check_failed",
     "error",
 ]
 
-# States that need the user to do something.
-ATTENTION_STATES: Final = frozenset(
-    {"conflict", "rejected", "blocked_secrets", "bootstrap_review", "suspicious_snapshot", "error"}
-)
+# States that need the user to do something: every state but idle and syncing.
+ATTENTION_STATES: Final = frozenset(STATES) - {"idle", "syncing"}

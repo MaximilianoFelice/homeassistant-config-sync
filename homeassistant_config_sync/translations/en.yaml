@@ -2,66 +2,65 @@ configuration:
   repository:
     name: Repository
     description: >-
-      SSH URL of the git repository, e.g. git@github.com:you/ha-config.git.
-      Add the app's deploy key (shown in the panel and in the log) to the
-      repository with write access. HTTPS URLs and tokens are not accepted.
+      HTTPS URL of the git repository, e.g. https://github.com/you/home.git.
+      Any git host works: GitHub, GitLab, Gitea…
+  token:
+    name: Access token
+    description: >-
+      A token with read and write access to the repository's contents, e.g. a
+      GitHub fine-grained token limited to that repository. It is stored in
+      this app's options (and therefore in Home Assistant backups).
+  username:
+    name: Username
+    description: Optional. Only for hosts that need a username with the token.
   main_branch:
     name: Main branch
-    description: Branch humans work on. Changes pushed here are applied to Home Assistant.
+    description: Branch people work on. Changes pushed here are applied to this box.
   box_branch:
     name: Box branch
-    description: Branch that mirrors this Home Assistant. Only the app writes to it.
-  mode:
-    name: Mode
+    description: Branch that mirrors this box. Only the app writes to it.
+  root:
+    name: Root
     description: >-
-      bidirectional (default) syncs both ways; push_only only publishes the box
-      branch and never applies main; pull_only makes this Home Assistant follow
-      main and discards its local edits (they stay in the box branch history).
+      Folder synced. / (default) syncs every folder the app sees
+      (homeassistant, app_configs, share, ssl, media, backup, local_apps);
+      /homeassistant (or config) syncs only Home Assistant's configuration.
+      What is synced inside it is decided by the repo's .gitignore.
   sync_interval_minutes:
     name: Sync interval (minutes)
     description: How often to sync. 0 = only when triggered by hand.
+  merge_options:
+    name: Merge options
+    description: >-
+      Passed to git as -X<option> when the box and main changed the same
+      file, e.g. ours (the box wins), theirs (main wins), patience. Per-file
+      rules go in the repo's .gitattributes.
+  check_config:
+    name: Check Home Assistant's config
+    description: After applying a change to Home Assistant's configuration, run its config check and report the result. Nothing is ever rolled back.
   reload:
-    name: Reload
-    description: auto reloads the YAML configuration after applying a change; none never reloads.
-  restart:
-    name: Restart
-    description: >-
-      never (default) only recommends a restart when a change needs one; auto
-      restarts Home Assistant after applying such a change.
-  check_warnings:
-    name: Config check warnings
-    description: >-
-      Home Assistant reports an integration with an invalid config as a warning
-      (it starts without that integration). new (default) rejects changes that
-      add warnings; any rejects any warning; ignore only looks at errors.
+    name: Reload Home Assistant
+    description: After applying a change to Home Assistant's configuration, reload it (skipped if the check reported errors).
+  max_file_size_mb:
+    name: Max file size (MB)
+    description: A larger file stops the sync until it is added to .gitignore or this limit is raised.
+  delete_guard_files:
+    name: Mass-deletion guard (files)
+    description: Stop when a sync would delete more than this many files.
+  delete_guard_percent:
+    name: Mass-deletion guard (%)
+    description: Stop when a sync would delete at least 5 files and more than this share of them.
   commit_author:
     name: Commit author
     description: Author of the commits made from this box, as "Name <email>".
-  max_file_size_kb:
-    name: Max file size (KB)
-    description: Larger files are skipped and reported.
-  delete_guard_percent:
-    name: Mass-deletion guard (%)
-    description: Stop when a snapshot would delete at least 5 files and more than this share of the managed files.
-  delete_guard_files:
-    name: Mass-deletion guard (files)
-    description: Stop when a snapshot would delete more than this many managed files.
   notify_service:
     name: Notify service
     description: Optional, e.g. notify.mobile_app_my_phone, to also get the problems that need you.
-  ssh_known_hosts:
-    name: Extra SSH known hosts
-    description: Host key lines for a git server other than GitHub (whose keys are built in).
-  mappings:
-    name: Mappings
-    description: >-
-      Which repo folder maps to which directory, and which files are synced
-      (include), only uploaded (push_only) or left out (exclude). Secrets,
-      databases, logs and keys are never synced, whatever these say.
   secret_scan:
     name: Secret scanner
     description: >-
-      webhook_id: warn or block literal webhook ids. allow: fingerprints of
-      findings that are false positives.
+      mode: warn (default) reports possible secrets and syncs anyway; block
+      stops the sync; off turns the scanner off. Rules and ignores come from
+      the repo's .gitleaks.toml and .gitleaksignore.
 network:
   8099/tcp: Web UI and API (used through ingress; no need to expose it).

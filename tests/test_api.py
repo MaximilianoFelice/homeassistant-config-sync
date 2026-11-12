@@ -51,6 +51,19 @@ async def test_status_and_errors(aiohttp_server) -> None:
             await ConfigSyncClient(session, "127.0.0.1", 1, "tok").status()
 
 
+async def test_sync_sends_only_fields_the_app_accepts(aiohttp_server) -> None:
+    async def sync(request):
+        # The app rejects unknown fields (its body is {"dry_run": bool}).
+        body = await request.json()
+        if set(body) - {"dry_run"}:
+            return web.json_response({"error": f"unknown fields {sorted(body)}"}, status=400)
+        return web.json_response({"job_id": "j1"}, status=202)
+
+    srv = await _server(aiohttp_server, [("POST", "/api/v1/sync", sync)])
+    async with ClientSession() as session:
+        assert await ConfigSyncClient(session, srv.host, srv.port, "tok").sync() == "j1"
+
+
 async def test_event_stream(aiohttp_server) -> None:
     async def events(request):
         if not _auth(request):

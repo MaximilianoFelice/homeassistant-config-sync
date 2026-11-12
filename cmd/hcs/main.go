@@ -1,6 +1,6 @@
 // Command hcs is the homeassistant-config-sync engine: it syncs the Home
 // Assistant configuration with a git repo in both directions.
-// See docs/design.md.
+// See docs/redesign.md.
 package main
 
 import (
@@ -21,12 +21,11 @@ type command struct {
 }
 
 var commands = []command{
-	{"init", "create the bare repo, the deploy key and known_hosts in the state dir"},
+	{"init", "create the bare repo, the askpass program and the API token in the state dir"},
 	{"status", "show the state of the last cycle"},
 	{"plan", "show what a sync would do, without touching anything"},
 	{"sync", "run one sync cycle"},
 	{"serve", "start the HTTP API and the scheduler"},
-	{"deploy-key", "show (or rotate) the deploy key's public key"},
 	{"scan-secrets", "run the secret scanner over arbitrary paths"},
 	{"version", "show the version"},
 }
@@ -39,36 +38,29 @@ type globalFlags struct {
 	allowFileRemote bool
 	json            bool
 
+	// fsRoot is where the app filesystem starts (tests and the local sandbox).
+	fsRoot string
+
 	// sync/plan only.
-	dryRun          bool
-	acceptBootstrap bool
-	allowMassDelete bool
+	dryRun bool
 
 	// serve only.
 	listen      string
-	stdin       bool
 	syncOnStart bool
-
-	discovery bool
-
-	// Only deploy-key.
-	rotate bool
+	discovery   bool
 }
 
 func (g *globalFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&g.config, "config", "", "YAML/JSON file with the options.json schema")
 	fs.StringVar(&g.stateDir, "state-dir", "/data", "engine state directory")
 	fs.StringVar(&g.checker, "checker", "", "supervisor | noop | command:'<cmd>' (default: supervisor if SUPERVISOR_TOKEN is set, otherwise noop)")
-	fs.BoolVar(&g.allowFileRemote, "allow-file-remote", false, "allow file:// remotes (v0 and tests only)")
+	fs.BoolVar(&g.allowFileRemote, "allow-file-remote", false, "allow file:// remotes (tests and the local sandbox only)")
+	fs.StringVar(&g.fsRoot, "fs-root", "/", "where the app filesystem starts; root is resolved under it (tests and the local sandbox)")
 	fs.BoolVar(&g.json, "json", false, "JSON output (status, sync, plan)")
 	fs.BoolVar(&g.dryRun, "dry-run", false, "sync: compute without committing, applying or pushing")
-	fs.BoolVar(&g.acceptBootstrap, "accept-bootstrap", false, "sync: confirm the first merge of box into an existing main")
-	fs.BoolVar(&g.allowMassDelete, "allow-mass-delete", false, "sync: confirm a mass deletion")
 	fs.StringVar(&g.listen, "listen", "127.0.0.1:8099", "serve: API address")
-	fs.BoolVar(&g.stdin, "stdin", false, "serve: accept commands on stdin (\"sync\"), like hassio.addon_stdin")
 	fs.BoolVar(&g.syncOnStart, "sync-on-start", false, "serve: run a sync on startup")
 	fs.BoolVar(&g.discovery, "discovery", false, "serve: announce the app to Home Assistant through Supervisor discovery (inside the app)")
-	fs.BoolVar(&g.rotate, "rotate", false, "deploy-key: generate a new key (keeps the old one as id_ed25519.old)")
 }
 
 func main() {
@@ -112,8 +104,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return scanSecrets(g, fs.Args(), stdout, stderr)
 	case "init":
 		return cmdInit(g, stdout, stderr)
-	case "deploy-key":
-		return cmdDeployKey(g, stdout, stderr)
 	case "status":
 		return cmdStatus(g, stdout, stderr)
 	case "sync":

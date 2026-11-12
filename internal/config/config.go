@@ -1,6 +1,10 @@
 // Package config defines the engine's configuration schema. It is the same
-// schema as the app's /data/options.json, so the v0 CLI and the v1 app read
-// exactly the same thing. See docs/design.md §13.
+// schema as the app's /data/options.json, so the CLI and the app read exactly
+// the same thing. See docs/redesign.md §11.
+//
+// Only how to reach the repo and how the box behaves live here. What is
+// synced (.gitignore), how merges resolve per path (.gitattributes) and the
+// secret scanner's rules (.gitleaks.toml) live in the repo itself.
 package config
 
 import (
@@ -9,156 +13,78 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 
 	"go.yaml.in/yaml/v3"
 )
 
-// Sync modes (design.md §6).
+// Secret scanner modes (docs/redesign.md §9).
 const (
-	ModeBidirectional = "bidirectional"
-	ModePushOnly      = "push_only"
-	ModePullOnly      = "pull_only"
+	SecretsWarn  = "warn"
+	SecretsBlock = "block"
+	SecretsOff   = "off"
 )
 
-// Reload and restart policies (design.md §7).
-const (
-	ReloadAuto = "auto"
-	ReloadNone = "none"
-
-	RestartNever = "never"
-	RestartAuto  = "auto"
-)
-
-// What to do with check_config warnings (design.md §7). HA reports an
-// integration with an invalid config as a warning: it still starts, but
-// without that integration.
-const (
-	// WarningsNew rejects if the change adds warnings that were not there before.
-	WarningsNew = "new"
-	// WarningsAny rejects on any warning.
-	WarningsAny = "any"
-	// WarningsIgnore only looks at errors.
-	WarningsIgnore = "ignore"
-)
-
-// Severity of the secret scanner's webhook_id rule (design.md §8).
-const (
-	SeverityWarn  = "warn"
-	SeverityBlock = "block"
-)
+// HomeAssistantDir is where the Supervisor mounts Home Assistant's
+// configuration inside an app. "config" is accepted as an alias for it in
+// the root option, like Terminal & SSH's ~/config link.
+const HomeAssistantDir = "/homeassistant"
 
 // Config is the engine's full configuration.
 type Config struct {
-	Repository          string     `yaml:"repository"`
-	MainBranch          string     `yaml:"main_branch"`
-	BoxBranch           string     `yaml:"box_branch"`
-	Mode                string     `yaml:"mode"`
-	SyncIntervalMinutes int        `yaml:"sync_interval_minutes"`
-	Reload              string     `yaml:"reload"`
-	Restart             string     `yaml:"restart"`
-	CheckWarnings       string     `yaml:"check_warnings"`
-	CommitAuthor        string     `yaml:"commit_author"`
-	MaxFileSizeKB       int        `yaml:"max_file_size_kb"`
-	DeleteGuardPercent  int        `yaml:"delete_guard_percent"`
-	DeleteGuardFiles    int        `yaml:"delete_guard_files"`
-	NotifyService       string     `yaml:"notify_service"`
-	SSHKnownHosts       []string   `yaml:"ssh_known_hosts"`
-	Mappings            []Mapping  `yaml:"mappings"`
-	SecretScan          SecretScan `yaml:"secret_scan"`
+	// Repository is the repo's HTTPS URL.
+	Repository string `yaml:"repository"`
+	// Token is the access token git authenticates with.
+	Token string `yaml:"token"`
+	// Username is sent with the token for hosts that need one. Empty: a
+	// placeholder is sent (GitHub and most hosts ignore it).
+	Username   string `yaml:"username"`
+	MainBranch string `yaml:"main_branch"`
+	BoxBranch  string `yaml:"box_branch"`
+	// Root is the folder synced, as an absolute path in the app's
+	// filesystem. "/" syncs every mount.
+	Root                string   `yaml:"root"`
+	SyncIntervalMinutes int      `yaml:"sync_interval_minutes"`
+	MergeOptions        []string `yaml:"merge_options"`
+	// CheckConfig asks Home Assistant to check its config after applying a
+	// change to it, only to inform.
+	CheckConfig bool `yaml:"check_config"`
+	// Reload asks Home Assistant to reload after applying a change to it.
+	Reload             bool       `yaml:"reload"`
+	MaxFileSizeMB      int        `yaml:"max_file_size_mb"`
+	DeleteGuardFiles   int        `yaml:"delete_guard_files"`
+	DeleteGuardPercent int        `yaml:"delete_guard_percent"`
+	CommitAuthor       string     `yaml:"commit_author"`
+	NotifyService      string     `yaml:"notify_service"`
+	SecretScan         SecretScan `yaml:"secret_scan"`
 }
 
-// Mapping links a repo prefix to a box directory (design.md §4) and defines
-// which paths of that directory are managed (§5).
-//
-// The three lists are strings (rather than objects with a direction) so the
-// Supervisor's options schema can validate them.
-type Mapping struct {
-	// Repo is the prefix inside the repo, with no leading or trailing slashes.
-	Repo string `yaml:"repo"`
-	// Box is the absolute directory on the box.
-	Box string `yaml:"box"`
-	// Include are the globs synced in both directions.
-	Include []string `yaml:"include"`
-	// PushOnly are the globs that only travel from the box to the repo.
-	PushOnly []string `yaml:"push_only"`
-	// Exclude removes paths from Include and PushOnly.
-	Exclude []string `yaml:"exclude"`
-	// Check says whether a change applied in this mapping must pass Home
-	// Assistant's check_config (design.md §7).
-	Check bool `yaml:"check"`
-}
-
-// SecretScan configures the secret scanner (design.md §8).
+// SecretScan configures the secret scanner.
 type SecretScan struct {
-	WebhookID string   `yaml:"webhook_id"`
-	Allow     []string `yaml:"allow"`
+	Mode string `yaml:"mode"`
 }
 
-// Default returns the default configuration. Repository is left empty
-// because it has no sensible default.
+// Default returns the default configuration. Repository and Token are left
+// empty because they have no sensible default.
 func Default() *Config {
 	return &Config{
 		MainBranch:          "main",
 		BoxBranch:           "box",
-		Mode:                ModeBidirectional,
+		Root:                "/",
 		SyncIntervalMinutes: 5,
-		Reload:              ReloadAuto,
-		Restart:             RestartNever,
-		CheckWarnings:       WarningsNew,
-		CommitAuthor:        "Home Assistant <ha@box.local>",
-		MaxFileSizeKB:       1024,
-		DeleteGuardPercent:  20,
+		MergeOptions:        []string{},
+		CheckConfig:         true,
+		Reload:              true,
+		MaxFileSizeMB:       10,
 		DeleteGuardFiles:    25,
-		Mappings:            DefaultMappings(),
-		SecretScan:          SecretScan{WebhookID: SeverityWarn},
-	}
-}
-
-// DefaultMappings returns the default mappings: config/ → /homeassistant
-// with the safe whitelist, and app_configs/ → /app_configs empty (apps have
-// to be chosen explicitly).
-func DefaultMappings() []Mapping {
-	return []Mapping{
-		{
-			Repo:  "config",
-			Box:   "/homeassistant",
-			Check: true,
-			Include: []string{
-				"**/*.yaml",
-				"**/*.yml",
-				"custom_templates/**/*.jinja",
-				"python_scripts/**/*.py",
-				"pyscript/**/*.py",
-			},
-			PushOnly: []string{
-				".storage/lovelace*",
-			},
-			Exclude: []string{
-				".cache/**",
-				"deps/**",
-				"tts/**",
-				"backups/**",
-				"custom_components/**",
-				"esphome/.esphome/**",
-				"**/__pycache__/**",
-				"ip_bans.yaml",
-			},
-		},
-		{
-			Repo:     "app_configs",
-			Box:      "/app_configs",
-			Include:  []string{},
-			PushOnly: []string{},
-			Exclude:  []string{},
-		},
+		DeleteGuardPercent:  20,
+		CommitAuthor:        "Home Assistant <ha@box.local>",
+		SecretScan:          SecretScan{Mode: SecretsWarn},
 	}
 }
 
 // Load reads the configuration from a YAML or JSON file (JSON is valid YAML,
 // so the Supervisor's options.json reads the same way). Missing fields keep
 // their default. Unknown keys are an error, so a typo does not go unnoticed.
-// Relative Box paths are resolved against the file's directory.
 //
 // Load does not validate: Validate does that.
 func Load(path string) (*Config, error) {
@@ -169,15 +95,6 @@ func Load(path string) (*Config, error) {
 	cfg, err := Parse(b)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-	dir, err := filepath.Abs(filepath.Dir(path))
-	if err != nil {
-		return nil, err
-	}
-	for i := range cfg.Mappings {
-		if b := cfg.Mappings[i].Box; b != "" && !filepath.IsAbs(b) {
-			cfg.Mappings[i].Box = filepath.Join(dir, b)
-		}
 	}
 	return cfg, nil
 }
@@ -191,4 +108,9 @@ func Parse(b []byte) (*Config, error) {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+// RootPath returns Root with the "config" alias resolved and cleaned.
+func (c *Config) RootPath() string {
+	return CleanRoot(c.Root)
 }

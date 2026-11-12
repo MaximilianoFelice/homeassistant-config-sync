@@ -46,9 +46,21 @@ type MergeTreeResult struct {
 }
 
 // MergeTree does a 3-way merge between ours and theirs without touching any
-// working tree or ref (git >= 2.38).
-func (r *Repo) MergeTree(ctx context.Context, ours, theirs string) (*MergeTreeResult, error) {
-	out, err := r.run(ctx, nil, "merge-tree", "--write-tree", "-z", "--name-only", "--messages", ours, theirs)
+// working tree or ref (git >= 2.38). strategyOptions are passed as
+// -X<option>, exactly like `git merge -X`. attrSource is the commit whose
+// .gitattributes apply (merge=union and the like); a bare repo has no work
+// tree to read them from.
+func (r *Repo) MergeTree(ctx context.Context, ours, theirs string, strategyOptions []string, attrSource string) (*MergeTreeResult, error) {
+	var args []string
+	if attrSource != "" {
+		args = append(args, "--attr-source="+attrSource)
+	}
+	args = append(args, "merge-tree", "--write-tree", "-z", "--name-only", "--messages")
+	for _, o := range strategyOptions {
+		args = append(args, "-X"+o)
+	}
+	args = append(args, ours, theirs)
+	out, err := r.run(ctx, nil, args...)
 	clean := err == nil
 	if err != nil {
 		if exitCode(err) != 1 {

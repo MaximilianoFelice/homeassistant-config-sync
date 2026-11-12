@@ -18,7 +18,7 @@ import (
 	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/ha"
 )
 
-// cmdServe starts the API, the scheduler and (optionally) the stdin channel.
+// cmdServe starts the API and the scheduler.
 // On SIGINT/SIGTERM it exits after waiting for the running cycle to finish.
 func cmdServe(g globalFlags, stdout, stderr io.Writer) int {
 	e, cfg, ok := newEngine(g, stderr)
@@ -65,11 +65,6 @@ func cmdServe(g globalFlags, stdout, stderr io.Writer) int {
 	interval := time.Duration(cfg.SyncIntervalMinutes) * time.Minute
 	logger.Printf("API at http://%s (token in %s/api_token); scheduled sync: %s", ln.Addr(), g.stateDir, orManual(interval))
 	go api.RunScheduler(ctx, srv, interval, func() { logger.Print("tick skipped: a sync is already running") })
-	if g.stdin {
-		go api.ReadCommands(ctx, os.Stdin, srv,
-			func(cmd string) { logger.Printf("unknown stdin command: %q", cmd) },
-			func() { logger.Print("stdin sync ignored: one is already running") })
-	}
 	if g.syncOnStart {
 		if _, err := srv.Trigger("start", engine.SyncOptions{}); err != nil {
 			logger.Printf("could not start the initial sync: %v", err)

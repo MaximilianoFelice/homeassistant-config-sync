@@ -1,58 +1,69 @@
 # Git Config Sync
 
-Syncs the Home Assistant configuration with a git repo in both directions.
+Syncs the folders this app can see (Home Assistant's configuration, other apps' configuration, `share`, `ssl`, `media`, `backup`, `local_apps`) with a git repo, in both directions, using plain git.
 
-- What changes in Home Assistant (UI, file editor) is committed to the `box` branch and reaches `main`.
-- What is pushed to `main` is applied only if it passes the checks. If it does not, the change is rolled back and you get a notification.
-- If both ends touched the same thing, the sync stops and notifies you. You resolve the merge as usual (on your computer or on GitHub).
-- `secrets.yaml`, databases, `.storage` (except dashboards), logs and keys never leave Home Assistant.
+- What changes on this box is committed to the `box` branch and reaches `main`.
+- What is pushed to `main` is applied to the box. If it touches Home Assistant's configuration, the app runs Home Assistant's config check, tells you the result, and reloads it.
+- If both ends changed the same lines, the sync stops and tells you. You merge `box` into `main` like any branch.
+- What is synced is decided by the repo's own `.gitignore`. Nothing is forbidden: the defaults only prevent accidents, and you can change them.
 
 ## Setup
 
-1. Create a repository (private is fine) on GitHub or any git server reachable over SSH.
-2. In **Configuration**, set `repository`, e.g. `git@github.com:you/ha-config.git`.
-3. Start the app and open **Git Config Sync** in the sidebar. It shows the app's deploy key (`ssh-ed25519 …`); it is also in the **Log**.
-4. On GitHub: your repository → Settings → Deploy keys → Add deploy key. Paste it and check **Allow write access**.
-5. Done. If the repository already had content, the first sync pushes the `box` branch and waits for you to review it: merge it into `main`, or press **Accept first sync** in the panel.
+1. Create a repository (private is fine) on GitHub, GitLab, Gitea or any git host with HTTPS.
+2. Create an access token with read and write access to the repository's contents. On GitHub: Settings → Developer settings → Fine-grained tokens, limited to that one repository, with **Contents: Read and write**.
+3. In **Configuration**, set `repository` (the HTTPS URL, e.g. `https://github.com/you/home.git`) and `token`.
+4. Start the app.
 
-The repository layout is `config/` for `/homeassistant` and `app_configs/` for other apps' configuration (opt-in, see `mappings`). Anything else in the repository (README, CI, docs) is left alone.
+If the repository is empty, the first sync publishes everything (minus what the base `.gitignore` leaves out) to `main` and `box`.
 
-## What gets synced
+If the repository already has content, the first sync pushes only the `box` branch, on top of `main`, and waits: compare `main` with `box` (a PR shows exactly how the box differs), leave the real state in `main` by merging `box` (to keep `main` as it is, `git merge -s ours box`), and syncing resumes by itself.
 
-By default, from the Home Assistant configuration: every `*.yaml`/`*.yml`, `custom_templates/**/*.jinja`, `python_scripts/**/*.py`, `pyscript/**/*.py`, and the dashboards in `.storage/lovelace*` (upload only). `custom_components/` is left out (HACS manages it). Change it in `mappings`.
+## The repository
 
-Never synced, whatever `mappings` say: `secrets.yaml`, databases, `.storage` auth and config entries, `.cloud`, `.ssh`, private keys and certificates, and logs. Files larger than `max_file_size_kb`, binaries and symlinks are skipped and reported.
+The repo mirrors the folders: `homeassistant/configuration.yaml` in the repo is `/homeassistant/configuration.yaml` here. With `root: /homeassistant` (or `config`) the repo holds only Home Assistant's configuration, without the prefix. Top-level files such as `README.md` or `.github/` are kept in the repo and restored when the app restarts.
 
-## Checks before applying a change from main
+What is synced is decided by the repo's `.gitignore`, with git's exact rules. If the repo has none, the first sync commits a base one that leaves out Home Assistant's `.storage`, `.cloud`, `secrets.yaml`, `ssl/`, databases, logs, caches, what HACS installs (`custom_components/`, `www/community/`), `backup/` and `media/`. Edit it like any file. A path that becomes ignored leaves the repo on the next sync (the file stays on disk; history is not rewritten).
 
-1. YAML/JSON syntax.
-2. Home Assistant's config check. Home Assistant reports an integration with an invalid config as a *warning* (it starts without that integration), so by default (`check_warnings: new`) a change that adds warnings is rejected too.
-3. After the reload, automations that became unavailable (an invalid automation passes the config check). If any appear, the change is undone and the configuration reloaded again.
+Merges are `git merge main` run on `box`. `merge_options` are passed as `-X` (`ours` = the box wins, `theirs` = main wins), and per-file rules go in the repo's `.gitattributes` (`merge=union`, for example).
 
-A rejected change is not retried until `main` changes again.
+## Guards
 
-## Modes
+- **Many deletions** (more than `delete_guard_files`, or at least 5 that are more than `delete_guard_percent`): from the box, only `box` is pushed and you resolve in `main`; from `main`, nothing is applied until you raise the threshold for one sync.
+- **A file larger than `max_file_size_mb`** (default 10) stops the sync until you add it to `.gitignore` or raise the limit.
+- **Changing `root`** works like a first sync: only `box` is pushed and you resolve in `main`.
+- With `root: /`, a top-level path from `main` that collides with the app's own container (for example `data/`) is not written.
 
-- `bidirectional` (default): both ways.
-- `push_only`: only publishes the `box` branch; never applies `main`.
-- `pull_only`: this Home Assistant follows `main`; its own edits are discarded (they stay in the `box` branch history). Never writes `main`.
+## Home Assistant
 
-## Restarts
+After applying a change to Home Assistant's configuration the app runs its config check (`check_config`) and reloads it (`reload`). If the check reports errors, it does not reload and tells you; the files stay as they came from `main` and the check is repeated until it passes. Nothing is ever rolled back. Changes to `configuration.yaml`, `packages/` or `custom_components/` need a restart: you are told, the app never restarts anything.
 
-Changes that usually need a restart (`configuration.yaml`, `packages/`) are applied and reloaded, and you are told a restart is recommended. With `restart: auto` the app restarts Home Assistant after such a change.
+Other apps' files are synced like any other file; the app does not restart or watch other apps. A program that keeps a file in memory (a dashboard, an app's own config) picks up a change from git when it reloads that file.
+
+## Secrets
+
+The secret scanner (gitleaks) looks at the whole repo every sync. By default (`secret_scan.mode: warn`) it reports possible secrets (path, line, rule; never the value) and syncs anyway; `block` stops the sync; `off` turns it off. With `warn` or `off`, a literal secret that is committed stays in git history.
+
+The rules are gitleaks' defaults, or the repo's `.gitleaks.toml`. False positives: add the fingerprint shown in the panel to the repo's `.gitleaksignore`, or end the line with a `gitleaks:allow` comment. Example `.gitleaks.toml` that keeps the defaults and adds a rule for literal passwords in YAML:
+
+```toml
+[extend]
+useDefault = true
+
+[[rules]]
+id = "literal-password"
+description = "Literal password instead of !secret"
+regex = '''(?i)^\s*\w*password:\s*['"]?([^!\s'"][^\s'"]{3,})'''
+secretGroup = 1
+keywords = ["password"]
+```
 
 ## Triggering a sync
 
-- The **Sync now** button in the panel.
-- From an automation: action `hassio.addon_stdin` with `addon: <this app's slug>` and `input: sync`.
+- The **Sync now** button in the panel, or the `button.git_config_sync_sync_now` entity of the integration (also from automations, with `button.press`).
 - Every `sync_interval_minutes` (default 5; 0 = manual only).
 
 ## Events and notifications
 
-Every cycle that did something fires the `homeassistant_config_sync` event (`type`: `sync_finished`, `conflict`, `rejected`, `blocked_secrets`, `bootstrap_review`, `suspicious_snapshot`, `error`). When you need to do something you also get one persistent notification (and the `notify_service`, if set), once per problem, and it is dismissed when the sync is back to normal.
-
-## Rotating the deploy key
-
-Press **Generate a new key** in the panel, add the new key on GitHub and remove the old one.
+Every cycle that did something fires the `homeassistant_config_sync` event (`type`: `sync_finished`, `conflict`, `review`, `mass_delete`, `too_large`, `path_collision`, `blocked_secrets`, `secrets_found`, `check_failed`, `error`). When you need to do something you also get one persistent notification (and the `notify_service`, if set), once per problem; it is dismissed when the sync is back to normal.
 
 More details in the [design document](https://github.com/MaximilianoFelice/homeassistant-config-sync/blob/main/docs/design.md).

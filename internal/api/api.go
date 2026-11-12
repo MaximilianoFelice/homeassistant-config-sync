@@ -1,6 +1,6 @@
 // Package api is the engine's small HTTP API (design.md §12): state, pending
-// changes, conflict, "sync now" and deploy key. It is meant for the ingress
-// UI (v2) and the HACS integration (v3).
+// changes, conflict and "sync now". It is meant for the ingress UI and the
+// config_sync integration.
 package api
 
 import (
@@ -44,7 +44,7 @@ const (
 // SyncFunc runs a cycle. Normally it is Engine.Sync.
 type SyncFunc func(ctx context.Context, so engine.SyncOptions) (*engine.Report, error)
 
-// Job is a cycle started by the API, the scheduler or stdin.
+// Job is a cycle started by the API or the scheduler.
 type Job struct {
 	ID       string             `json:"id"`
 	Trigger  string             `json:"trigger"`
@@ -187,8 +187,6 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("GET /api/v1/conflict", s.conflict)
 	api.HandleFunc("POST /api/v1/sync", s.sync)
 	api.HandleFunc("GET /api/v1/jobs/{id}", s.job)
-	api.HandleFunc("GET /api/v1/deploy-key", s.deployKey)
-	api.HandleFunc("POST /api/v1/deploy-key/rotate", s.rotateKey)
 	api.HandleFunc("GET /api/v1/events", s.eventStream)
 
 	root := http.NewServeMux()
@@ -227,7 +225,6 @@ func (s *Server) status(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	st.Cache = nil
 	resp := StatusResponse{State: st, Job: s.Running()}
 	resp.Syncing = resp.Job != nil
 	writeJSON(w, http.StatusOK, resp)
@@ -277,9 +274,7 @@ func (s *Server) conflict(w http.ResponseWriter, _ *http.Request) {
 
 // SyncRequest is the optional body of POST /api/v1/sync.
 type SyncRequest struct {
-	DryRun          bool `json:"dry_run"`
-	AcceptBootstrap bool `json:"accept_bootstrap"`
-	AllowMassDelete bool `json:"allow_mass_delete"`
+	DryRun bool `json:"dry_run"`
 }
 
 func (s *Server) sync(w http.ResponseWriter, r *http.Request) {
@@ -292,7 +287,7 @@ func (s *Server) sync(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	j, err := s.Trigger("api", engine.SyncOptions{DryRun: req.DryRun, AcceptBootstrap: req.AcceptBootstrap, AllowMassDelete: req.AllowMassDelete})
+	j, err := s.Trigger("api", engine.SyncOptions{DryRun: req.DryRun})
 	if errors.Is(err, ErrBusy) {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "job": s.Running()})
 		return
@@ -310,34 +305,7 @@ func (s *Server) job(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, j)
 }
 
-func (s *Server) deployKey(w http.ResponseWriter, _ *http.Request) {
-	pub, err := engine.DeployKey(s.opts.StateDir)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "no deploy key: not initialized yet")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"public_key": pub})
-}
-
-// rotateKey generates a new deploy key. The old one keeps working on GitHub
-// until the user removes it, but the app stops using it right away.
-func (s *Server) rotateKey(w http.ResponseWriter, _ *http.Request) {
-	if s.Running() != nil {
-		writeError(w, http.StatusConflict, ErrBusy.Error())
-		return
-	}
-	pub, err := engine.RotateDeployKey(s.opts.StateDir)
-	switch {
-	case errors.Is(err, engine.ErrBusy):
-		writeError(w, http.StatusConflict, err.Error())
-	case err != nil:
-		writeError(w, http.StatusInternalServerError, err.Error())
-	default:
-		writeJSON(w, http.StatusOK, map[string]string{"public_key": pub})
-	}
-}
-
-var githubRepo = regexp.MustCompile(`^(?:git@github\.com:|ssh://git@github\.com/)([^/]+)/(.+?)(?:\.git)?$`)
+var githubRepo = regexp.MustCompile(`^https://github\.com/([^/]+)/(.+?)(?:\.git)?/?$`)
 
 // CompareURL builds the link to the GitHub compare, or "" if the remote is
 // not GitHub.

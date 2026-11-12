@@ -19,7 +19,7 @@ from .conftest import BASE, DATA, STATUS_IDLE
 CONFLICT = {
     **STATUS_IDLE,
     "state": "conflict",
-    "conflict_paths": ["config/automations.yaml"],
+    "conflict_paths": ["homeassistant/automations.yaml"],
     "restart_recommended": True,
     "last_error": "",
 }
@@ -47,7 +47,7 @@ async def test_entities(hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
 
     state = hass.states.get("sensor.git_config_sync_sync_state")
     assert state.state == "conflict"
-    assert state.attributes["conflict_paths"] == ["config/automations.yaml"]
+    assert state.attributes["conflict_paths"] == ["homeassistant/automations.yaml"]
     assert hass.states.get("binary_sensor.git_config_sync_needs_attention").state == "on"
     assert hass.states.get("binary_sensor.git_config_sync_restart_recommended").state == "on"
     assert hass.states.get("sensor.git_config_sync_last_sync").state == "2026-11-12T02:00:00+00:00"
@@ -57,6 +57,22 @@ async def test_entities(hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
 
     assert await hass.config_entries.async_unload(entry.entry_id)
     assert entry.state is ConfigEntryState.NOT_LOADED
+
+
+async def test_review_and_secret_findings(hass: HomeAssistant, aioclient_mock: AiohttpClientMocker) -> None:
+    finding = {"path": "homeassistant/a.yaml", "line": 3, "rule": "github-pat", "fingerprint": "homeassistant/a.yaml:github-pat:3"}
+    aioclient_mock.get(f"{BASE}/status", json={**STATUS_IDLE, "state": "review", "review": "first_sync", "findings": [finding]})
+    entry = await _setup(hass)
+
+    state = hass.states.get("sensor.git_config_sync_sync_state")
+    assert state.state == "review"
+    assert state.attributes["review"] == "first_sync"
+    assert hass.states.get("binary_sensor.git_config_sync_needs_attention").state == "on"
+    secrets = hass.states.get("sensor.git_config_sync_possible_secrets")
+    assert secrets.state == "1"
+    assert secrets.attributes["findings"] == ["homeassistant/a.yaml:3 (github-pat)"]
+    assert secrets.attributes["fingerprints"] == ["homeassistant/a.yaml:github-pat:3"]
+    await hass.config_entries.async_unload(entry.entry_id)
 
 
 async def test_syncing_overrides_state(hass: HomeAssistant, aioclient_mock: AiohttpClientMocker) -> None:

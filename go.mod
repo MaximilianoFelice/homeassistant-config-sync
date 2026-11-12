@@ -3,11 +3,10 @@ module github.com/MaximilianoFelice/homeassistant-config-sync
 go 1.27.4
 
 require (
-	github.com/bmatcuk/doublestar/v4 v4.10.4
 	github.com/rs/zerolog v1.33.0
+	github.com/spf13/viper v1.19.0
 	github.com/zricethezav/gitleaks/v8 v8.30.1
 	go.yaml.in/yaml/v3 v3.0.6
-	golang.org/x/crypto v0.59.0
 )
 
 require (
@@ -61,7 +60,6 @@ require (
 	github.com/spf13/afero v1.12.0 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
 	github.com/spf13/pflag v1.0.6 // indirect
-	github.com/spf13/viper v1.19.0 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/tetratelabs/wazero v1.9.0 // indirect
 	github.com/therootcompany/xz v1.0.1 // indirect
@@ -70,6 +68,7 @@ require (
 	github.com/wasilibs/wazero-helpers v0.0.0-20240620070341-3dff1577cd52 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go4.org v0.0.0-20230225012048-214862532bf5 // indirect
+	golang.org/x/crypto v0.59.0 // indirect
 	golang.org/x/exp v0.0.0-20250218142911-aa4b98e5adaa // indirect
 	golang.org/x/sync v0.25.0 // indirect
 	golang.org/x/sys v0.50.0 // indirect

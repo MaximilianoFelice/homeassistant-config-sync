@@ -1,135 +1,172 @@
-// Package secrets is the secret scanner that runs before committing a
-// snapshot (design.md §8). It combines gitleaks' default rules with
-// Home Assistant-specific rules.
+// Package secrets is the secret scanner (docs/redesign.md §9): gitleaks with
+// its standard configuration. The rules come from the repo's .gitleaks.toml
+// (gitleaks' defaults when there is none), false positives are silenced with
+// the repo's .gitleaksignore or a gitleaks:allow comment, exactly as with the
+// gitleaks CLI.
 //
 // Golden rule: a Finding never carries the secret's value. Not in its
 // fields, not in Error(), not in logs.
 package secrets
 
 import (
+	"bufio"
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"path"
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/rs/zerolog"
+	"github.com/spf13/viper"
+	glconfig "github.com/zricethezav/gitleaks/v8/config"
 	"github.com/zricethezav/gitleaks/v8/detect"
 	"github.com/zricethezav/gitleaks/v8/logging"
-	"go.yaml.in/yaml/v3"
-
-	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/config"
 )
 
-// Severities.
+// File names gitleaks looks for at the root of what it scans.
 const (
-	Block = "block"
-	Warn  = "warn"
+	ConfigFile = ".gitleaks.toml"
+	IgnoreFile = ".gitleaksignore"
 )
 
-// Custom rules.
-const (
-	RuleHALiteral    = "ha-literal-secret"
-	RuleHAWebhookID  = "ha-webhook-id"
-	RuleURLWithCreds = "url-with-credentials"
-)
-
-// ErrSecretsFound means there are blocking findings. The concrete error is
-// *BlockedError.
-var ErrSecretsFound = errors.New("possible secrets in the changes")
-
-// Finding is a finding, without the value.
+// Finding is a finding, without the value. Fingerprint has gitleaks' format
+// for files ("path:rule:line"), so it can be pasted into .gitleaksignore.
 type Finding struct {
 	Path        string `json:"path"`
 	Line        int    `json:"line"`
 	Rule        string `json:"rule"`
-	Severity    string `json:"severity"`
 	Fingerprint string `json:"fingerprint"`
 }
 
 func (f Finding) String() string {
-	return fmt.Sprintf("%s:%d: %s (%s) [%s]", f.Path, f.Line, f.Rule, f.Severity, f.Fingerprint)
+	return fmt.Sprintf("%s:%d: %s [%s]", f.Path, f.Line, f.Rule, f.Fingerprint)
 }
 
-// BlockedError lists the blocking findings.
-type BlockedError struct {
-	Findings []Finding
-}
-
-func (e *BlockedError) Error() string {
-	var b strings.Builder
-	b.WriteString(ErrSecretsFound.Error() + ":")
-	for _, f := range e.Findings {
-		b.WriteString("\n  " + f.String())
-	}
-	b.WriteString("\nMove the value to secrets.yaml (and use !secret), or add the fingerprint to secret_scan.allow if it is a false positive.")
-	return b.String()
-}
-
-// Is makes errors.Is(err, ErrSecretsFound) work.
-func (e *BlockedError) Is(target error) bool { return target == ErrSecretsFound }
-
-// Scanner is the configured scanner.
+// Scanner is a gitleaks detector plus the repo's ignore list.
 type Scanner struct {
-	gl        *detect.Detector
-	webhookID string
-	allow     map[string]bool
+	det    *detect.Detector
+	ignore map[string]bool
 }
 
-// New creates a Scanner.
-func New(cfg config.SecretScan) (*Scanner, error) {
-	// gitleaks logs to stderr, and in debug it could include content: turn it off.
+// gitleaks' config loader keeps package-level state; loading is serialized.
+var loadMu sync.Mutex
+
+var commitPrefix = regexp.MustCompile(`^[0-9a-f]{40}:`)
+
+// New builds a scanner from the repo's .gitleaks.toml (nil: gitleaks'
+// defaults) and .gitleaksignore (nil: none).
+func New(configTOML, ignore []byte) (*Scanner, error) {
+	loadMu.Lock()
+	defer loadMu.Unlock()
+	// gitleaks logs to stderr, and in debug it could include content.
 	logging.Logger = zerolog.Nop()
-	gl, err := detect.NewDetectorDefaultConfig()
+
+	def, err := load([]byte(glconfig.DefaultConfig))
 	if err != nil {
-		return nil, fmt.Errorf("loading the gitleaks rules: %w", err)
+		return nil, fmt.Errorf("loading gitleaks' default rules: %w", err)
 	}
-	s := &Scanner{gl: gl, webhookID: cfg.WebhookID, allow: map[string]bool{}}
-	if s.webhookID == "" {
-		s.webhookID = Warn
+	cfg := def
+	if len(bytes.TrimSpace(configTOML)) > 0 {
+		if cfg, err = loadRepoConfig(configTOML, def); err != nil {
+			return nil, fmt.Errorf("%s: %w", ConfigFile, err)
+		}
 	}
-	for _, fp := range cfg.Allow {
-		s.allow[fp] = true
+	s := &Scanner{det: detect.NewDetector(cfg), ignore: map[string]bool{}}
+	sc := bufio.NewScanner(bytes.NewReader(ignore))
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		// Fingerprints from a git scan carry the commit first; what is
+		// scanned here is the tree, so only path:rule:line matters.
+		s.ignore[commitPrefix.ReplaceAllString(line, "")] = true
 	}
 	return s, nil
 }
 
-// Scan returns a file's findings (including those allowed by fingerprint,
-// which Check filters out).
-func (s *Scanner) Scan(repoPath string, content []byte) []Finding {
-	lines := bytes.Split(content, []byte{'\n'})
+func load(toml []byte) (glconfig.Config, error) {
+	v := viper.New()
+	v.SetConfigType("toml")
+	if err := v.ReadConfig(bytes.NewReader(toml)); err != nil {
+		return glconfig.Config{}, err
+	}
+	var vc glconfig.ViperConfig
+	if err := v.Unmarshal(&vc); err != nil {
+		return glconfig.Config{}, err
+	}
+	return vc.Translate()
+}
+
+// loadRepoConfig loads the repo's config. [extend] useDefault is applied
+// here instead of by gitleaks: its loader counts extensions in a
+// package-level variable that never resets, so a long-running process that
+// reloads the config would silently stop extending after the second load.
+func loadRepoConfig(toml []byte, def glconfig.Config) (glconfig.Config, error) {
+	v := viper.New()
+	v.SetConfigType("toml")
+	if err := v.ReadConfig(bytes.NewReader(toml)); err != nil {
+		return glconfig.Config{}, err
+	}
+	var vc glconfig.ViperConfig
+	if err := v.Unmarshal(&vc); err != nil {
+		return glconfig.Config{}, err
+	}
+	if vc.Extend.Path != "" || vc.Extend.URL != "" {
+		return glconfig.Config{}, errors.New("[extend] path and url are not supported; use useDefault = true")
+	}
+	useDefault, disabled := vc.Extend.UseDefault, vc.Extend.DisabledRules
+	vc.Extend = glconfig.Extend{}
+	cfg, err := vc.Translate()
+	if err != nil {
+		return glconfig.Config{}, err
+	}
+	if !useDefault {
+		return cfg, nil
+	}
+	off := map[string]bool{}
+	for _, id := range disabled {
+		off[id] = true
+	}
+	if cfg.Rules == nil {
+		cfg.Rules = map[string]glconfig.Rule{}
+	}
+	if cfg.Keywords == nil {
+		cfg.Keywords = map[string]struct{}{}
+	}
+	// A rule defined in the repo replaces the default rule with its ID.
+	for id, r := range def.Rules {
+		if _, mine := cfg.Rules[id]; mine || off[id] {
+			continue
+		}
+		cfg.Rules[id] = r
+		cfg.OrderedRules = append(cfg.OrderedRules, id)
+		for _, k := range r.Keywords {
+			cfg.Keywords[k] = struct{}{}
+		}
+	}
+	cfg.Allowlists = append(cfg.Allowlists, def.Allowlists...)
+	return cfg, nil
+}
+
+// Scan returns a file's findings that are not ignored.
+func (s *Scanner) Scan(path string, content []byte) []Finding {
 	seen := map[string]bool{}
 	var out []Finding
-	add := func(line int, rule, severity string) {
-		f := Finding{Path: repoPath, Line: line, Rule: rule, Severity: severity, Fingerprint: fingerprint(repoPath, rule, lineText(lines, line))}
-		key := fmt.Sprintf("%d\x00%s", f.Line, f.Rule)
-		if !seen[key] {
-			seen[key] = true
-			out = append(out, f)
+	//nolint:staticcheck // Fragment is the only way to pass the file path, which per-path allowlists need.
+	for _, gf := range s.det.Detect(detect.Fragment{Raw: string(content), FilePath: path}) {
+		// gitleaks numbers lines from 0 in standalone fragments; its CLI
+		// reports them from 1.
+		line := gf.StartLine + 1
+		fp := fmt.Sprintf("%s:%s:%d", path, gf.RuleID, line)
+		if seen[fp] || s.ignore[fp] {
+			continue
 		}
+		seen[fp] = true
+		out = append(out, Finding{Path: path, Line: line, Rule: gf.RuleID, Fingerprint: fp})
 	}
-
-	// DetectBytes instead of Detect(Fragment): Fragment is deprecated until
-	// v9. Only gitleaks' per-path allowlists (lockfiles and the like) are
-	// lost, and they do not apply here.
-	for _, gf := range s.gl.DetectBytes(content) {
-		// gitleaks numbers lines from 0 in standalone fragments.
-		add(gf.StartLine+1, gf.RuleID, Block)
-	}
-	for i, l := range lines {
-		if urlWithCreds.Match(l) {
-			add(i+1, RuleURLWithCreds, Block)
-		}
-	}
-	switch strings.ToLower(path.Ext(repoPath)) {
-	case ".yaml", ".yml":
-		s.scanYAML(content, add)
-	}
-
 	sort.Slice(out, func(a, b int) bool {
 		if out[a].Line != out[b].Line {
 			return out[a].Line < out[b].Line
@@ -137,123 +174,4 @@ func (s *Scanner) Scan(repoPath string, content []byte) []Finding {
 		return out[a].Rule < out[b].Rule
 	})
 	return out
-}
-
-// Check scans a set of files (repo path → content). It returns the warnings
-// and, if there are blocking findings that are not allowed, a
-// *BlockedError.
-func (s *Scanner) Check(contents map[string][]byte) (warnings []Finding, err error) {
-	paths := make([]string, 0, len(contents))
-	for p := range contents {
-		paths = append(paths, p)
-	}
-	sort.Strings(paths)
-	var blocked []Finding
-	for _, p := range paths {
-		for _, f := range s.Scan(p, contents[p]) {
-			switch {
-			case s.allow[f.Fingerprint]:
-				continue
-			case f.Severity == Block:
-				blocked = append(blocked, f)
-			default:
-				warnings = append(warnings, f)
-			}
-		}
-	}
-	if len(blocked) > 0 {
-		return warnings, &BlockedError{Findings: blocked}
-	}
-	return warnings, nil
-}
-
-// urlWithCreds detects scheme://user:password@host.
-var urlWithCreds = regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.\-]*://[^\s:/@"']+:[^\s/@"']+@[^\s/"']+`)
-
-// sensitiveKeys are the YAML keys whose literal value is a secret. A key
-// matches if it equals one of these or ends in "_" + one of these
-// (api_password, refresh_token, client_secret…).
-var sensitiveKeys = []string{
-	"password", "passwd", "pass", "token", "api_key", "apikey", "secret",
-	"private_key", "privkey", "bearer", "auth_key", "access_key", "secret_key",
-}
-
-func sensitive(key string) bool {
-	k := strings.ToLower(key)
-	for _, w := range sensitiveKeys {
-		if k == w || strings.HasSuffix(k, "_"+w) {
-			return true
-		}
-	}
-	return false
-}
-
-// scanYAML applies the HA rules. If the YAML does not parse, it does nothing
-// (the syntax pre-check is a separate step; gitleaks ran anyway).
-func (s *Scanner) scanYAML(content []byte, add func(line int, rule, severity string)) {
-	dec := yaml.NewDecoder(bytes.NewReader(content))
-	for {
-		var doc yaml.Node
-		if err := dec.Decode(&doc); err != nil {
-			return
-		}
-		walk(&doc, func(k, v *yaml.Node) {
-			if !literal(v) {
-				return
-			}
-			switch {
-			case strings.EqualFold(k.Value, "webhook_id"):
-				add(v.Line, RuleHAWebhookID, s.webhookID)
-			case sensitive(k.Value):
-				add(v.Line, RuleHALiteral, Block)
-			}
-		})
-	}
-}
-
-// walk visits every key/value pair of the mappings.
-func walk(n *yaml.Node, fn func(k, v *yaml.Node)) {
-	switch n.Kind {
-	case yaml.DocumentNode, yaml.SequenceNode:
-		for _, c := range n.Content {
-			walk(c, fn)
-		}
-	case yaml.MappingNode:
-		for i := 0; i+1 < len(n.Content); i += 2 {
-			fn(n.Content[i], n.Content[i+1])
-			walk(n.Content[i+1], fn)
-		}
-	}
-}
-
-// literal reports whether a value is a hand-written scalar: not a !secret,
-// !env_var, !input or other HA tag, not a template, not empty or boolean.
-func literal(v *yaml.Node) bool {
-	if v.Kind != yaml.ScalarNode {
-		return false
-	}
-	switch v.Tag {
-	case "!!str", "!!int", "!!float", "":
-	default:
-		return false // !secret, !env_var, !input, !!bool, !!null…
-	}
-	val := strings.TrimSpace(v.Value)
-	if val == "" || strings.Contains(val, "{{") || strings.Contains(val, "{%") {
-		return false
-	}
-	return true
-}
-
-func lineText(lines [][]byte, line int) string {
-	if line < 1 || line > len(lines) {
-		return ""
-	}
-	return strings.TrimSpace(string(lines[line-1]))
-}
-
-// fingerprint identifies a finding so it can be allowed: it changes if the
-// path, the rule or the line content changes.
-func fingerprint(repoPath, rule, line string) string {
-	h := sha256.Sum256([]byte(repoPath + "\x00" + rule + "\x00" + line))
-	return hex.EncodeToString(h[:])
 }

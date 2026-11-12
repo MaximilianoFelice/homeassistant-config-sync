@@ -33,45 +33,6 @@ func inContainer(t *testing.T, container, script string) {
 	}
 }
 
-// TestIntegrationInvalidAutomationIsUnavailable checks the assumption the
-// engine relies on: check_config does not catch an automation with an invalid
-// trigger, but after a reload HA exposes it as an unavailable entity.
-func TestIntegrationInvalidAutomationIsUnavailable(t *testing.T) {
-	s, c := integrationClient(t)
-	ctx := context.Background()
-	inContainer(t, c, "cp /config/automations.yaml /config/automations.bak")
-	t.Cleanup(func() {
-		inContainer(t, c, "cp /config/automations.bak /config/automations.yaml")
-		_ = s.ReloadAll(ctx)
-	})
-
-	before, err := s.UnavailableAutomations(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	inContainer(t, c, `cat >> /config/automations.yaml <<'EOF'
-- id: hcs_bad
-  alias: hcs bad
-  triggers:
-    - trigger: no_such_trigger_platform
-  actions: []
-EOF`)
-	cr, err := s.CheckConfig(ctx)
-	if err != nil || !cr.Valid {
-		t.Fatalf("check_config should still pass (that is the gap): %+v, %v", cr, err)
-	}
-	if err := s.ReloadAll(ctx); err != nil {
-		t.Fatal(err)
-	}
-	after, err := s.UnavailableAutomations(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := NewItems(before, after); len(got) != 1 || got[0] != "automation.hcs_bad" {
-		t.Fatalf("new unavailable automations = %v (before %v, after %v)", got, before, after)
-	}
-}
-
 func TestIntegrationCheckConfig(t *testing.T) {
 	s, c := integrationClient(t)
 	ctx := context.Background()
@@ -89,14 +50,10 @@ func TestIntegrationCheckConfig(t *testing.T) {
 	if err != nil || !got.Valid || len(got.Warnings) == 0 || !strings.Contains(strings.Join(got.Warnings, "\n"), "timer") {
 		t.Fatalf("invalid integration: want valid with a timer warning, got %+v, %v", got, err)
 	}
-	if len(NewWarnings(nil, got.Warnings)) == 0 {
-		t.Error("NewWarnings should see it as new")
-	}
 
 	// Invalid http: the CLI script (check_config --json) counts it as an
 	// error, but the REST API (the one the app uses in prod) returns it as a
-	// warning with result "valid". Verified against HA 2026.11.1. That is why
-	// check_warnings: new is the default.
+	// warning with result "valid". Verified against HA 2026.11.1.
 	inContainer(t, c, "cp /config/configuration.bak /config/configuration.yaml")
 	inContainer(t, c, `sed -i 's/^http:$/http:\n  server_port: not_a_number/' /config/configuration.yaml`)
 	got, err = s.CheckConfig(ctx)

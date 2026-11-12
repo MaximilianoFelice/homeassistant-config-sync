@@ -183,7 +183,7 @@ func TestNotifyKeepsGoingAfterAFailure(t *testing.T) {
 		}
 		return false
 	}}
-	err := newClient(t, f).Notify(context.Background(), Event{Type: EventRejected, Persistent: true})
+	err := newClient(t, f).Notify(context.Background(), Event{Type: EventCheckFailed, Persistent: true})
 	if err == nil || !strings.Contains(err.Error(), "500") {
 		t.Errorf("want the event error, got %v", err)
 	}
@@ -215,32 +215,6 @@ func TestCheckConfigWarnings(t *testing.T) {
 	}
 }
 
-func TestRestartAndUnavailableAutomations(t *testing.T) {
-	f := &fakeCore{handler: func(w http.ResponseWriter, r *http.Request) bool {
-		if r.Method == http.MethodGet && r.URL.Path == "/core/api/states" {
-			_, _ = w.Write([]byte(`[
-				{"entity_id": "automation.ok", "state": "on"},
-				{"entity_id": "automation.zeta", "state": "unavailable"},
-				{"entity_id": "automation.alpha", "state": "unavailable"},
-				{"entity_id": "light.kitchen", "state": "unavailable"}
-			]`))
-			return true
-		}
-		return false
-	}}
-	s := newClient(t, f)
-	got, err := s.UnavailableAutomations(context.Background())
-	if err != nil || !reflect.DeepEqual(got, []string{"automation.alpha", "automation.zeta"}) {
-		t.Errorf("= %v, %v", got, err)
-	}
-	if err := s.Restart(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	if p := f.paths(); p[len(p)-1] != "POST /core/api/services/homeassistant/restart" {
-		t.Errorf("calls = %v", p)
-	}
-}
-
 func TestPublishDiscovery(t *testing.T) {
 	f := &fakeCore{}
 	s := newClient(t, f)
@@ -252,20 +226,6 @@ func TestPublishDiscovery(t *testing.T) {
 	c := f.calls[0]
 	if c.Path != "POST /discovery" || c.Body["service"] != "config_sync" || c.Body["config"].(map[string]any)["port"] != float64(8099) {
 		t.Errorf("call = %+v", c)
-	}
-}
-
-func TestNewItems(t *testing.T) {
-	if got := NewItems([]string{"a", "b"}, []string{"b", "c"}); !reflect.DeepEqual(got, []string{"c"}) {
-		t.Errorf("= %v", got)
-	}
-}
-
-func TestNewWarningsIgnoresLineNumbers(t *testing.T) {
-	before := []string{"Invalid config for 'timer' at configuration.yaml, line 40: bad"}
-	after := []string{"Invalid config for 'timer' at configuration.yaml, line 52: bad", "Invalid config for 'http' at x.yaml, line 1: new"}
-	if got := NewWarnings(before, after); len(got) != 1 || !strings.Contains(got[0], "http") {
-		t.Errorf("= %v", got)
 	}
 }
 

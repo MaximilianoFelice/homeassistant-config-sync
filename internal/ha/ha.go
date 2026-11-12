@@ -1,11 +1,10 @@
-// Package ha abstracts what the engine needs from Home Assistant (design.md
-// §10). In M4 there is only the config check; the implementation against the
-// Supervisor (SUPERVISOR_TOKEN) arrives in M7.
+// Package ha abstracts what the engine needs from Home Assistant: the config
+// check (informational), the reload, and events and notifications. The
+// implementation goes through the Supervisor (SUPERVISOR_TOKEN).
 package ha
 
 import (
 	"context"
-	"regexp"
 )
 
 // CheckResult is the result of check_config.
@@ -13,37 +12,18 @@ type CheckResult struct {
 	Valid bool
 	// Errors is the error text HA returns (empty if valid).
 	Errors string
-	// Warnings are HA's warnings, one per element. Note: an integration with
-	// an invalid config is a warning, not an error (HA starts anyway and
-	// disables it), so "valid" is not enough to guarantee nothing breaks.
+	// Warnings are HA's warnings, one per element (an integration with an
+	// invalid config is a warning: HA starts anyway and disables it).
 	Warnings []string
 }
 
-var lineRef = regexp.MustCompile(`,? line \d+`)
-
-// NewWarnings returns the warnings in after that were not in before,
-// comparing without line numbers (which shift with any edit).
-func NewWarnings(before, after []string) []string {
-	seen := map[string]bool{}
-	for _, w := range before {
-		seen[lineRef.ReplaceAllString(w, "")] = true
-	}
-	var out []string
-	for _, w := range after {
-		if !seen[lineRef.ReplaceAllString(w, "")] {
-			out = append(out, w)
-		}
-	}
-	return out
-}
-
-// Checker validates the configuration on the live disk.
+// Checker checks the configuration on the live disk.
 type Checker interface {
 	CheckConfig(ctx context.Context) (CheckResult, error)
 }
 
-// Noop is a Checker that always reports valid. It is the v0 default when
-// there is no Supervisor.
+// Noop is a Checker, Reloader and Notifier that does nothing. It is the
+// default outside the app.
 type Noop struct{}
 
 // CheckConfig implements Checker.
@@ -56,15 +36,18 @@ type Reloader interface {
 	ReloadAll(ctx context.Context) error
 }
 
-// Event types (design.md §10). They match the engine states plus
-// sync_finished.
+// Event types. They match the engine states that need a person, plus
+// sync_finished and secrets_found.
 const (
 	EventSyncFinished   = "sync_finished"
 	EventConflict       = "conflict"
-	EventRejected       = "rejected"
+	EventReview         = "review"
+	EventMassDelete     = "mass_delete"
+	EventTooLarge       = "too_large"
+	EventPathCollision  = "path_collision"
 	EventBlockedSecrets = "blocked_secrets"
-	EventBootstrap      = "bootstrap_review"
-	EventSuspicious     = "suspicious_snapshot"
+	EventSecretsFound   = "secrets_found"
+	EventCheckFailed    = "check_failed"
 	EventError          = "error"
 )
 
@@ -75,7 +58,7 @@ type Event struct {
 	Message string         `json:"message"`
 	Data    map[string]any `json:"data,omitempty"`
 	// Persistent means a persistent notification is warranted on top of the
-	// event (the states that need the user to do something).
+	// event (things that need the user to do something).
 	Persistent bool `json:"persistent"`
 }
 
@@ -84,42 +67,8 @@ type Notifier interface {
 	Notify(ctx context.Context, ev Event) error
 }
 
-// Restarter restarts Home Assistant Core.
-type Restarter interface {
-	Restart(ctx context.Context) error
-}
-
-// AutomationStates reports the automations that are unavailable, which is
-// how HA exposes an automation whose config is invalid: check_config does not
-// catch those, they only show up after a reload.
-type AutomationStates interface {
-	UnavailableAutomations(ctx context.Context) ([]string, error)
-}
-
-// NewItems returns the elements of after that are not in before.
-func NewItems(before, after []string) []string {
-	seen := map[string]bool{}
-	for _, s := range before {
-		seen[s] = true
-	}
-	var out []string
-	for _, s := range after {
-		if !seen[s] {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
 // ReloadAll implements Reloader by doing nothing.
 func (Noop) ReloadAll(context.Context) error { return nil }
-
-// Restart implements Restarter by doing nothing.
-func (Noop) Restart(context.Context) error { return nil }
-
-// UnavailableAutomations implements AutomationStates: without Home Assistant
-// there is nothing to inspect.
-func (Noop) UnavailableAutomations(context.Context) ([]string, error) { return nil, nil }
 
 // Notify implements Notifier by doing nothing.
 func (Noop) Notify(context.Context, Event) error { return nil }

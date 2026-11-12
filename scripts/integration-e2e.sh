@@ -20,8 +20,9 @@ fail() { echo "  FAIL $*"; fails=$((fails + 1)); }
 
 echo "== install the integration into the test Core and restart it"
 # Fresh onboarding on every run (the test user's password is never kept):
-# drop the test Core's users, onboarding state and earlier config_sync entry.
-dc sh -c 'cd /mnt/supervisor/homeassistant/.storage 2>/dev/null && rm -f onboarding auth auth_provider.homeassistant core.config_entries || true'
+# drop the test Core's users, onboarding state, earlier config_sync entry and
+# the entities and devices it left (otherwise new entities get a _2 suffix).
+dc sh -c 'cd /mnt/supervisor/homeassistant/.storage 2>/dev/null && rm -f onboarding auth auth_provider.homeassistant core.config_entries core.entity_registry core.device_registry core.restore_state || true'
 dc sh -c 'rm -rf /mnt/supervisor/homeassistant/custom_components/config_sync && mkdir -p /mnt/supervisor/homeassistant/custom_components'
 cp custom_components/config_sync/strings.json custom_components/config_sync/translations/en.json
 tar -C custom_components -cf - --exclude=__pycache__ config_sync | dc tar -C /mnt/supervisor/homeassistant/custom_components -xf -
@@ -66,7 +67,7 @@ result=$(curl -fs -X POST "${H[@]}" "$base/api/config/config_entries/flow/$flow_
 echo "== entities"
 sleep 3
 states=$(curl -fs "${H[@]}" "$base/api/states")
-for e in sensor.git_config_sync_sync_state sensor.git_config_sync_last_sync binary_sensor.git_config_sync_needs_attention button.git_config_sync_sync_now; do
+for e in sensor.git_config_sync_sync_state sensor.git_config_sync_last_sync sensor.git_config_sync_possible_secrets binary_sensor.git_config_sync_needs_attention button.git_config_sync_sync_now; do
   v=$(echo "$states" | python3 -c "import json,sys; s=[x for x in json.load(sys.stdin) if x['entity_id']=='$e']; print(s[0]['state'] if s else '')")
   [[ -n $v ]] && pass "$e = $v" || fail "$e missing"
 done

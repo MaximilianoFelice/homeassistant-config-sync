@@ -1,7 +1,7 @@
 name: Git Config Sync
 version: "0.0.1"
 slug: homeassistant_config_sync
-description: Two-way sync of the Home Assistant configuration with a git repo (SSH only, with config check)
+description: Two-way sync of your Home Assistant folders with a git repo, using plain git
 url: https://github.com/MaximilianoFelice/homeassistant-config-sync
 # Prebuilt images published by the release workflow. For a local build
 # (scripts/supervisor-dev.sh), scripts/build-addon.sh --stage drops this line.
@@ -9,7 +9,8 @@ image: ghcr.io/maximilianofelice/{arch}-homeassistant-config-sync
 arch:
   - aarch64
   - amd64
-# all_app_configs needs Supervisor 2026.11, which ships with Core 2026.11.
+# all_app_configs and local_apps need Supervisor 2026.11, which ships with
+# Core 2026.11.
 homeassistant: "2026.11.0"
 startup: application
 boot: auto
@@ -19,88 +20,59 @@ homeassistant_api: true
 hassio_api: true
 discovery:
   - config_sync
-stdin: true
 ingress: true
 ingress_port: 8099
 panel_icon: mdi:source-branch-sync
 panel_title: Git Config Sync
+# The same folders as the official Terminal & SSH app. What is synced is
+# decided by the repo's .gitignore.
 map:
   - type: homeassistant_config
     read_only: false
   - type: all_app_configs
     read_only: false
+  - type: share
+    read_only: false
+  - type: ssl
+    read_only: false
+  - type: media
+    read_only: false
+  - type: backup
+    read_only: false
+  - type: local_apps
+    read_only: false
 options:
   repository: ""
+  token: ""
   main_branch: main
   box_branch: box
-  mode: bidirectional
+  root: /
   sync_interval_minutes: 5
-  reload: auto
-  restart: never
-  check_warnings: new
-  commit_author: "Home Assistant <ha@box.local>"
-  max_file_size_kb: 1024
-  delete_guard_percent: 20
+  merge_options: []
+  check_config: true
+  reload: true
+  max_file_size_mb: 10
   delete_guard_files: 25
-  notify_service: ""
-  ssh_known_hosts: []
-  mappings:
-    - repo: config
-      box: /homeassistant
-      check: true
-      include:
-        - "**/*.yaml"
-        - "**/*.yml"
-        - "custom_templates/**/*.jinja"
-        - "python_scripts/**/*.py"
-        - "pyscript/**/*.py"
-      push_only:
-        - ".storage/lovelace*"
-      exclude:
-        - ".cache/**"
-        - "deps/**"
-        - "tts/**"
-        - "backups/**"
-        - "custom_components/**"
-        - "esphome/.esphome/**"
-        - "**/__pycache__/**"
-        - "ip_bans.yaml"
-    - repo: app_configs
-      box: /app_configs
-      check: false
-      include: []
-      push_only: []
-      exclude: []
+  delete_guard_percent: 20
+  commit_author: "Home Assistant <ha@box.local>"
   secret_scan:
-    webhook_id: warn
-    allow: []
+    mode: warn
 schema:
   repository: str
+  token: password
+  username: str?
   main_branch: str
   box_branch: str
-  mode: list(bidirectional|push_only|pull_only)
+  root: str
   sync_interval_minutes: int(0,)
-  reload: list(auto|none)
-  restart: list(never|auto)
-  check_warnings: list(new|any|ignore)
-  commit_author: str
-  max_file_size_kb: int(1,)
-  delete_guard_percent: int(1,100)
-  delete_guard_files: int(1,)
-  notify_service: str?
-  ssh_known_hosts:
+  merge_options:
     - str
-  mappings:
-    - repo: str
-      box: str
-      check: bool
-      include:
-        - str
-      push_only:
-        - str
-      exclude:
-        - str
+  check_config: bool
+  reload: bool
+  max_file_size_mb: int(1,)
+  delete_guard_files: int(1,)
+  delete_guard_percent: int(1,100)
+  commit_author: str
+  notify_service: str?
   secret_scan:
-    webhook_id: list(warn|block)
-    allow:
-      - str
+    mode: list(warn|block|off)

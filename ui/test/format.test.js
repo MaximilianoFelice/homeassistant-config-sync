@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { changeKind, findingLine, planRows, relativeTime, shortSha, stateInfo } from "../src/format.js";
+import { REVIEWS, STATES, changeKind, findingLine, relativeTime, shortSha, stateInfo } from "../src/format.js";
 
 test("stateInfo maps engine states and prefers syncing", () => {
   assert.equal(stateInfo("conflict").tone, "error");
@@ -8,6 +8,15 @@ test("stateInfo maps engine states and prefers syncing", () => {
   assert.equal(stateInfo("conflict", true).key, "syncing");
   assert.equal(stateInfo("something_new").tone, "error");
   assert.equal(stateInfo("").key, "idle");
+});
+
+test("every engine state has a label", () => {
+  for (const s of ["idle", "conflict", "review", "mass_delete", "too_large", "path_collision", "blocked_secrets", "check_failed", "error"]) {
+    assert.ok(STATES[s]?.label, s);
+  }
+  for (const r of ["first_sync", "root_changed", "mass_delete"]) {
+    assert.ok(REVIEWS[r], r);
+  }
 });
 
 test("relativeTime", () => {
@@ -25,23 +34,9 @@ test("shortSha and changeKind", () => {
   assert.equal(shortSha(""), "—");
   assert.equal(changeKind("A"), "added");
   assert.equal(changeKind("D"), "deleted");
-});
-
-test("planRows classifies ops", () => {
-  const rows = planRows({
-    ops: [
-      { repo_path: "config/a.yaml", old_oid: "1", new_oid: "2" },
-      { repo_path: "config/b.yaml", new_oid: "3" },
-      { repo_path: "config/c.yaml", old_oid: "4" },
-    ],
-  });
-  assert.deepEqual(
-    rows.map((r) => r.kind),
-    ["modified", "added", "deleted"],
-  );
-  assert.deepEqual(planRows(null), []);
+  assert.equal(changeKind("T"), "type changed");
 });
 
 test("findingLine never includes a value", () => {
-  assert.equal(findingLine({ path: "config/a.yaml", line: 3, rule: "ha-literal-secret" }), "config/a.yaml:3 — ha-literal-secret");
+  assert.equal(findingLine({ path: "homeassistant/a.yaml", line: 3, rule: "github-pat" }), "homeassistant/a.yaml:3 — github-pat");
 });

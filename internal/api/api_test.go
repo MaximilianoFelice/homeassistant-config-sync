@@ -42,15 +42,15 @@ func (f *fake) sync(_ context.Context, so engine.SyncOptions) (*engine.Report, e
 	return &r, f.err
 }
 
-func newServer(t *testing.T, f *fake, state string) (*Server, string) {
+func newServer(t *testing.T, f *fake, state string) *Server {
 	t.Helper()
 	dir := t.TempDir()
 	if state != "" {
 		testkit.WriteFile(t, filepath.Join(dir, "state.json"), state)
 	}
 	cfg := config.Default()
-	cfg.Repository = "git@github.com:you/my-home-ha.git"
-	return New(Options{Config: cfg, StateDir: dir, Sync: f.sync, Token: tok}), dir
+	cfg.Repository = "https://github.com/you/my-home-ha.git"
+	return New(Options{Config: cfg, StateDir: dir, Sync: f.sync, Token: tok})
 }
 
 func do(t *testing.T, h http.Handler, method, path, body string, auth bool) (*httptest.ResponseRecorder, map[string]any) {
@@ -83,7 +83,7 @@ func waitJob(t *testing.T, s *Server, id string) *Job {
 }
 
 func TestAuth(t *testing.T) {
-	s, _ := newServer(t, &fake{}, `{"state": "idle"}`)
+	s := newServer(t, &fake{}, `{"state": "idle"}`)
 	h := s.Handler()
 
 	if rec, _ := do(t, h, "GET", "/api/v1/status", "", false); rec.Code != http.StatusUnauthorized {
@@ -122,7 +122,7 @@ func TestAuth(t *testing.T) {
 
 func TestStatusHidesCacheAndShowsRunningJob(t *testing.T) {
 	f := &fake{block: make(chan struct{})}
-	s, _ := newServer(t, f, `{"state": "conflict", "box_head": "abc", "cache": {"config/a.yaml": {"size": 1, "oid": "x"}}}`)
+	s := newServer(t, f, `{"state": "conflict", "box_head": "abc", "cache": {"config/a.yaml": {"size": 1, "oid": "x"}}}`)
 	h := s.Handler()
 
 	rec, out := do(t, h, "GET", "/api/v1/status", "", true)
@@ -147,10 +147,10 @@ func TestStatusHidesCacheAndShowsRunningJob(t *testing.T) {
 
 func TestSyncJobLifecycle(t *testing.T) {
 	f := &fake{report: engine.Report{State: engine.StateIdle}}
-	s, _ := newServer(t, f, "")
+	s := newServer(t, f, "")
 	h := s.Handler()
 
-	rec, out := do(t, h, "POST", "/api/v1/sync", `{"accept_bootstrap": true}`, true)
+	rec, out := do(t, h, "POST", "/api/v1/sync", `{"dry_run": true}`, true)
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("POST sync = %d %v", rec.Code, out)
 	}
@@ -162,8 +162,8 @@ func TestSyncJobLifecycle(t *testing.T) {
 	if j.Status != JobDone || j.Report.State != engine.StateIdle || j.Trigger != "api" {
 		t.Errorf("job = %+v", j)
 	}
-	if so := f.lastOpt.Load().(engine.SyncOptions); !so.AcceptBootstrap {
-		t.Errorf("accept_bootstrap did not arrive: %+v", so)
+	if so := f.lastOpt.Load().(engine.SyncOptions); !so.DryRun {
+		t.Errorf("dry_run did not arrive: %+v", so)
 	}
 	rec, out = do(t, h, "GET", "/api/v1/jobs/"+id, "", true)
 	if rec.Code != 200 || out["status"] != JobDone {
@@ -175,7 +175,7 @@ func TestSyncJobLifecycle(t *testing.T) {
 }
 
 func TestSyncWithoutBodyAndBadBody(t *testing.T) {
-	s, _ := newServer(t, &fake{}, "")
+	s := newServer(t, &fake{}, "")
 	h := s.Handler()
 	rec, out := do(t, h, "POST", "/api/v1/sync", "", true)
 	if rec.Code != http.StatusAccepted {
@@ -192,7 +192,7 @@ func TestSyncWithoutBodyAndBadBody(t *testing.T) {
 
 func TestOnlyOneJobAtATime(t *testing.T) {
 	f := &fake{block: make(chan struct{})}
-	s, _ := newServer(t, f, "")
+	s := newServer(t, f, "")
 	h := s.Handler()
 	_, out := do(t, h, "POST", "/api/v1/sync", "", true)
 	id := out["job_id"].(string)
@@ -216,7 +216,7 @@ func TestOnlyOneJobAtATime(t *testing.T) {
 func TestFailedJob(t *testing.T) {
 	f := &fake{err: errors.New("the network is down")}
 	var seen atomic.Value
-	s, _ := newServer(t, f, "")
+	s := newServer(t, f, "")
 	s.opts.OnJob = func(j *Job) { seen.Store(j.Status) }
 	j, _ := s.Trigger("test", engine.SyncOptions{})
 	done := waitJob(t, s, j.ID)
@@ -231,7 +231,7 @@ func TestFailedJob(t *testing.T) {
 
 func TestPendingIsADryRun(t *testing.T) {
 	f := &fake{report: engine.Report{State: engine.StateIdle}}
-	s, _ := newServer(t, f, "")
+	s := newServer(t, f, "")
 	rec, out := do(t, s.Handler(), "GET", "/api/v1/pending", "", true)
 	if rec.Code != 200 || out["dry_run"] != true {
 		t.Errorf("pending = %d %v", rec.Code, out)
@@ -242,12 +242,12 @@ func TestPendingIsADryRun(t *testing.T) {
 }
 
 func TestConflictEndpoint(t *testing.T) {
-	s, _ := newServer(t, &fake{}, `{"state": "conflict", "conflict_paths": ["config/automations.yaml"], "box_head": "b1", "main_head": "m1"}`)
+	s := newServer(t, &fake{}, `{"state": "conflict", "conflict_paths": ["homeassistant/automations.yaml"], "box_head": "b1", "main_head": "m1"}`)
 	_, out := do(t, s.Handler(), "GET", "/api/v1/conflict", "", true)
 	if out["conflict"] != true || out["compare_url"] != "https://github.com/you/my-home-ha/compare/main...box" {
 		t.Errorf("conflict = %v", out)
 	}
-	s2, _ := newServer(t, &fake{}, `{"state": "idle"}`)
+	s2 := newServer(t, &fake{}, `{"state": "idle"}`)
 	if _, out := do(t, s2.Handler(), "GET", "/api/v1/conflict", "", true); out["conflict"] != false || out["paths"] != nil {
 		t.Errorf("without conflict = %v", out)
 	}
@@ -255,11 +255,10 @@ func TestConflictEndpoint(t *testing.T) {
 
 func TestCompareURL(t *testing.T) {
 	for repo, want := range map[string]string{
-		"git@github.com:you/home.git":       "https://github.com/you/home/compare/main...box",
-		"git@github.com:you/home":           "https://github.com/you/home/compare/main...box",
-		"ssh://git@github.com/you/home.git": "https://github.com/you/home/compare/main...box",
-		"git@gitea.local:you/home.git":      "",
-		"file:///tmp/origin.git":            "",
+		"https://github.com/you/home.git":  "https://github.com/you/home/compare/main...box",
+		"https://github.com/you/home":      "https://github.com/you/home/compare/main...box",
+		"https://gitea.local/you/home.git": "",
+		"file:///tmp/origin.git":           "",
 	} {
 		if got := CompareURL(repo, "main", "box"); got != want {
 			t.Errorf("CompareURL(%q) = %q, want %q", repo, got, want)
@@ -267,44 +266,9 @@ func TestCompareURL(t *testing.T) {
 	}
 }
 
-func TestDeployKeyEndpoint(t *testing.T) {
-	s, dir := newServer(t, &fake{}, "")
-	if rec, _ := do(t, s.Handler(), "GET", "/api/v1/deploy-key", "", true); rec.Code != http.StatusNotFound {
-		t.Errorf("without init = %d", rec.Code)
-	}
-	testkit.WriteFile(t, filepath.Join(dir, "ssh", "id_ed25519.pub"), "ssh-ed25519 AAAA homeassistant-config-sync\n")
-	if _, out := do(t, s.Handler(), "GET", "/api/v1/deploy-key", "", true); out["public_key"] != "ssh-ed25519 AAAA homeassistant-config-sync" {
-		t.Errorf("= %v", out)
-	}
-}
-
-func TestRotateKeyEndpoint(t *testing.T) {
-	s, dir := newServer(t, &fake{}, "")
-	if rec, _ := do(t, s.Handler(), "POST", "/api/v1/deploy-key/rotate", "", true); rec.Code != http.StatusInternalServerError {
-		t.Errorf("without a key = %d", rec.Code)
-	}
-	testkit.WriteFile(t, filepath.Join(dir, "ssh", "id_ed25519"), "old private\n")
-	testkit.WriteFile(t, filepath.Join(dir, "ssh", "id_ed25519.pub"), "ssh-ed25519 OLD homeassistant-config-sync\n")
-	rec, out := do(t, s.Handler(), "POST", "/api/v1/deploy-key/rotate", "", true)
-	pub, _ := out["public_key"].(string)
-	if rec.Code != http.StatusOK || !strings.HasPrefix(pub, "ssh-ed25519 ") || strings.Contains(pub, "OLD") {
-		t.Errorf("rotate = %d %v", rec.Code, out)
-	}
-
-	// Not while a sync is running.
-	f := &fake{block: make(chan struct{})}
-	s2, _ := newServer(t, f, "")
-	j, _ := s2.Trigger("test", engine.SyncOptions{})
-	if rec, _ := do(t, s2.Handler(), "POST", "/api/v1/deploy-key/rotate", "", true); rec.Code != http.StatusConflict {
-		t.Errorf("during a sync = %d", rec.Code)
-	}
-	close(f.block)
-	waitJob(t, s2, j.ID)
-}
-
 func TestEventStreamSendsJobEvents(t *testing.T) {
 	f := &fake{block: make(chan struct{}), report: engine.Report{State: engine.StateIdle}}
-	s, _ := newServer(t, f, "")
+	s := newServer(t, f, "")
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 
@@ -368,7 +332,7 @@ func TestEventStreamSendsJobEvents(t *testing.T) {
 }
 
 func TestUIIsServedWithoutAuth(t *testing.T) {
-	s, _ := newServer(t, &fake{}, "")
+	s := newServer(t, &fake{}, "")
 	rec, _ := do(t, s.Handler(), "GET", "/", "", false)
 	if rec.Code == http.StatusUnauthorized {
 		t.Fatal("the static UI must not require the API token")
@@ -380,7 +344,7 @@ func TestUIIsServedWithoutAuth(t *testing.T) {
 
 func TestSchedulerTriggersAndSkipsWhenBusy(t *testing.T) {
 	f := &fake{}
-	s, _ := newServer(t, f, "")
+	s := newServer(t, f, "")
 	ctx, cancel := context.WithCancel(context.Background())
 	go RunScheduler(ctx, s, 10*time.Millisecond, nil)
 	deadline := time.Now().Add(5 * time.Second)
@@ -395,7 +359,7 @@ func TestSchedulerTriggersAndSkipsWhenBusy(t *testing.T) {
 
 	// With a blocked sync, ticks are skipped.
 	f2 := &fake{block: make(chan struct{})}
-	s2, _ := newServer(t, f2, "")
+	s2 := newServer(t, f2, "")
 	var skips atomic.Int32
 	ctx2, cancel2 := context.WithCancel(context.Background())
 	go RunScheduler(ctx2, s2, 10*time.Millisecond, func() { skips.Add(1) })
@@ -412,22 +376,10 @@ func TestSchedulerTriggersAndSkipsWhenBusy(t *testing.T) {
 
 func TestSchedulerDisabledWithZeroInterval(t *testing.T) {
 	f := &fake{}
-	s, _ := newServer(t, f, "")
+	s := newServer(t, f, "")
 	RunScheduler(context.Background(), s, 0, nil) // returns right away
 	if f.calls.Load() != 0 {
 		t.Error("interval 0 = manual only")
-	}
-}
-
-func TestReadCommands(t *testing.T) {
-	f := &fake{}
-	s, _ := newServer(t, f, "")
-	var unknown []string
-	// HA sends the hassio.addon_stdin input as JSON: "sync" with quotes.
-	ReadCommands(context.Background(), strings.NewReader("\"sync\"\n\nreboot\n"), s, func(c string) { unknown = append(unknown, c) }, nil)
-	s.Wait()
-	if f.calls.Load() != 1 || len(unknown) != 1 || unknown[0] != "reboot" {
-		t.Errorf("calls = %d, unknown = %v", f.calls.Load(), unknown)
 	}
 }
 
@@ -440,18 +392,16 @@ func TestRealEngineThroughAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	box := filepath.Join(root, "homeassistant")
-	testkit.WriteFile(t, filepath.Join(box, "automations.yaml"), "[]\n")
+	fsRoot := filepath.Join(root, "fs")
+	testkit.WriteFile(t, filepath.Join(fsRoot, "homeassistant", "automations.yaml"), "[]\n")
 	cfg := config.Default()
 	cfg.Repository = "file://" + origin.Dir()
-	cfg.Mappings = cfg.Mappings[:1]
-	cfg.Mappings[0].Box = box
 	stateDir := filepath.Join(root, "state")
-	e, err := engine.New(engine.Options{Config: cfg, StateDir: stateDir, AllowFileRemote: true})
+	e, err := engine.New(engine.Options{Config: cfg, StateDir: stateDir, FSRoot: fsRoot, AllowFileRemote: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.Init(ctx); err != nil {
+	if err := e.Init(ctx); err != nil {
 		t.Fatal(err)
 	}
 	token, err := engine.APIToken(stateDir)
@@ -478,7 +428,7 @@ func TestRealEngineThroughAPI(t *testing.T) {
 	if j.Status != JobDone || j.Report.State != engine.StateIdle {
 		t.Fatalf("job = %+v", j)
 	}
-	if got := testkit.Tree(t, origin, "refs/heads/main")["config/automations.yaml"]; got != "[]\n" {
+	if got := testkit.Tree(t, origin, "refs/heads/main")["homeassistant/automations.yaml"]; got != "[]\n" {
 		t.Errorf("main/automations = %q", got)
 	}
 	if _, err := os.Stat(filepath.Join(stateDir, "state.json")); err != nil {

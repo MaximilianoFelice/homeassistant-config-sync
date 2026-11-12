@@ -7,29 +7,46 @@ export const STATES = {
   conflict: {
     label: "Conflict",
     tone: "error",
-    help: "The box and main changed the same lines. The box branch was pushed; merge it into main and the next sync continues.",
+    help: "The box and main changed the same lines. The box branch was pushed; merge it into main like any branch and the next sync continues.",
   },
-  rejected: {
-    label: "Change rejected",
+  review: {
+    label: "Review needed",
+    tone: "warn",
+    help: "Only the box branch was pushed. Leave the real state in main by merging box (a PR or locally); syncing resumes after that.",
+  },
+  mass_delete: {
+    label: "Many deletions held back",
+    tone: "warn",
+    help: "Applying main would delete many files on the box, so nothing was applied. If it is intended, raise the deletion guard for one sync.",
+  },
+  too_large: {
+    label: "File too large",
+    tone: "warn",
+    help: "Nothing was committed: a file is larger than max_file_size_mb. Add it to .gitignore or raise the limit.",
+  },
+  path_collision: {
+    label: "Path collides with the app",
     tone: "error",
-    help: "A change from main did not pass the checks and was rolled back. Fix it on main; it is not retried until main changes.",
+    help: "main adds a top-level path that already exists in the app's container. Nothing was applied; move or rename it in main.",
   },
   blocked_secrets: {
     label: "Possible secret",
     tone: "error",
-    help: "Nothing was committed. Move the values to secrets.yaml (use !secret), or allow the finding by fingerprint if it is a false positive.",
+    help: "Nothing was committed (secret_scan.mode is block). Move the values out of the repo, or add the fingerprints to .gitleaksignore if they are false positives.",
   },
-  bootstrap_review: {
-    label: "Review the first sync",
-    tone: "warn",
-    help: "The box branch shows how this box differs from main. Merge it into main, or accept it here.",
-  },
-  suspicious_snapshot: {
-    label: "Snapshot stopped",
-    tone: "warn",
-    help: "The snapshot looked wrong (an empty mount or a mass deletion), so nothing was committed.",
+  check_failed: {
+    label: "Config check failed",
+    tone: "error",
+    help: "The changes from main were applied, but Home Assistant's config check reported errors, so it was not reloaded. Fix them in main.",
   },
   error: { label: "Error", tone: "error", help: "The last cycle failed; see the details." },
+};
+
+/** Why a review is needed. */
+export const REVIEWS = {
+  first_sync: "This is the first sync against a repo that already has content.",
+  root_changed: "The root option changed, so the repo layout changed.",
+  mass_delete: "The box deleted many files.",
 };
 
 export function stateInfo(state, syncing) {
@@ -63,17 +80,9 @@ export function relativeTime(iso, now = Date.now()) {
   return "just now";
 }
 
-/** Human label for a snapshot change kind (A/M/D). */
-export function changeKind(kind) {
-  return { A: "added", M: "modified", D: "deleted" }[kind] ?? kind;
-}
-
-/** Ops of an apply plan as {kind, path} rows. */
-export function planRows(plan) {
-  return (plan?.ops ?? []).map((op) => ({
-    kind: op.new_oid ? (op.old_oid ? "modified" : "added") : "deleted",
-    path: op.repo_path,
-  }));
+/** Human label for git's status letter (A/M/D/T). */
+export function changeKind(status) {
+  return { A: "added", M: "modified", D: "deleted", T: "type changed" }[status] ?? status;
 }
 
 /** One line per secret finding, never with values (the API has none). */

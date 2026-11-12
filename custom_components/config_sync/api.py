@@ -52,9 +52,9 @@ class ConfigSyncClient:
         """Return the engine state (GET /status)."""
         return await self._request("GET", "status")
 
-    async def sync(self, accept_bootstrap: bool = False) -> str:
+    async def sync(self) -> str:
         """Start a sync cycle and return the job id (POST /sync)."""
-        data = await self._request("POST", "sync", {"accept_bootstrap": accept_bootstrap})
+        data = await self._request("POST", "sync", {})
         return str(data["job_id"])
 
     async def events(self) -> AsyncIterator[tuple[str, Any]]:
