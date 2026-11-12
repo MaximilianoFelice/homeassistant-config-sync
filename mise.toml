@@ -18,6 +18,14 @@ run = ["go vet ./...", "golangci-lint run"]
 description = "Fuzzing de los parsers y matchers (fuera del ciclo normal)"
 run = "go test ./internal/paths -run '^$' -fuzz FuzzClassifyRepoPath -fuzztime 60s"
 
+[tasks."test:ha-core"]
+description = "Cliente de HA contra un Core real en Docker (scripts/ha-core-test.sh)"
+run = "scripts/ha-core-test.sh"
+
+[tasks."test:e2e"]
+description = "E2E sobre la copia del box con check_config real (requiere scripts/fetch-box-copy.sh)"
+run = "scripts/e2e-sandbox.sh"
+
 [tasks.check]
 description = "Lo que tiene que pasar antes de cada commit"
 depends = ["lint", "test", "build"]

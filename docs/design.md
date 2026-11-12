@@ -274,6 +274,7 @@ No hay estrategia automática (`prefer_main` / `prefer_box`) en v0/v1. Queda com
 - `new` (default): se corre un check **antes** de escribir para tener los warnings de base y se rechaza si el cambio agrega alguno. La comparación ignora los números de línea, que se corren con cualquier edición. Cuesta un check más por apply, pero no deja que un push apague una integración en silencio, y una config que ya arrastra warnings no queda trabada.
 - `any`: rechaza con cualquier warning.
 - `ignore`: solo mira los errores, como el botón "Verificar configuración" de la UI.
+- La API REST es todavía más permisiva que el script de la CLI: `http.server_port` inválido es un **error** para `check_config --json`, pero por `/api/config/core/check_config` (lo que usa la app) es un **warning** con `result: valid`. Para la API, solo un YAML que no parsea es error. Con `ignore` se dejaría pasar casi todo; por eso el default es `new`.
 - Las automatizaciones inválidas no las detecta ninguna de las tres. Queda como mejora futura (por ejemplo, revisar el log o el estado `unavailable` de las automatizaciones después del reload).
 
 **Ventana de riesgo:** `check_config` valida el directorio vivo, así que los archivos nuevos están en disco unos segundos antes del rollback. HA no relee YAML por su cuenta (salvo integraciones puntuales que vigilan archivos, como pyscript), así que el riesgo es bajo. Un check en un directorio de staging necesitaría la imagen de HA Core dentro de la app, que pesa demasiado. Se documenta y se descarta para v1.

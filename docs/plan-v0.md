@@ -223,7 +223,17 @@ Un chequeo final aborta si llegó algo de la denylist.
 | YAML roto desde main | `rejected` por el pre-check, el box intacto; revertir destraba. |
 | el mismo box contra un repo vacío | `blocked_secrets` señalando el YAML de ESPHome con la clave escrita a mano. Nada pusheado, ni commits locales. |
 
-Las dos corridas seguidas dieron `E2E OK`. Lo que no cubre: `check_config` real (corrió con `--checker noop`) y SSH contra GitHub (el remoto es `file://`). Las dos cosas son del v1.
+Las dos corridas seguidas dieron `E2E OK`.
+
+### Nivel Core en Docker (después del M9)
+
+Con la imagen `ghcr.io/home-assistant/home-assistant:2026.11.1` (versión fijada):
+
+- **`mise run test:e2e`:** el E2E usa el `check_config` real (`scripts/ha-check.sh` + `scripts/fake-secrets.sh`). Suma dos casos: un cambio que deja una integración inválida y otro con `http` inválido. Los dos se rechazan con rollback.
+- **`mise run test:ha-core`:** levanta un Core descartable con una config mínima, hace el onboarding con un usuario de prueba y corre `internal/ha` contra la API real (`check_config`, `reload_all`, evento, notificación persistente, `notify_service` inexistente, token inválido).
+- **Hallazgo:** para la API REST casi todo es warning (ver `design.md` §7), lo que justifica `check_warnings: new`.
+
+Sigue sin cubrir: el proxy del Supervisor con `SUPERVISOR_TOKEN`, los mounts de la app y SSH contra GitHub. Es el nivel Supervisor.
 
 ## Riesgos y cosas a validar temprano
 
