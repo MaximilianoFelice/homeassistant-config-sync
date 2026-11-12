@@ -4,16 +4,16 @@
     "step": {
       "user": {
         "title": "Git Config Sync",
-        "description": "Connect to the Git Config Sync app. When the app runs on this Home Assistant it is discovered automatically; use this form only for an app elsewhere.",
+        "description": "When the Git Config Sync app runs on this Home Assistant you do not need this form: restart Home Assistant after installing the integration and add it from Settings → Devices & services → Discovered. If it does not show up there, open the app's web UI: its \"Home Assistant integration\" section shows the host, port and API token to enter here.",
         "data": {
           "host": "Host",
           "port": "Port",
           "token": "API token"
         },
         "data_description": {
-          "host": "Hostname of the app (inside Home Assistant OS: local-homeassistant-config-sync).",
+          "host": "The app's hostname, shown on its Info page and in its web UI (e.g. ff19ed62-homeassistant-config-sync).",
           "port": "API port of the app (8099).",
-          "token": "Content of the app's /data/api_token."
+          "token": "Shown in the app's web UI, \"Home Assistant integration\" section."
         }
       },
       "hassio_confirm": {
@@ -22,7 +22,7 @@
       },
       "reauth_confirm": {
         "title": "Git Config Sync",
-        "description": "The app rejected the API token. Enter the current one (the content of the app's /data/api_token).",
+        "description": "The app rejected the API token. Enter the current one, shown in the app's web UI (\"Home Assistant integration\" section).",
         "data": {
           "token": "API token"
         }

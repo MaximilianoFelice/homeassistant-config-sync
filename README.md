@@ -19,60 +19,19 @@ An optional integration (installable from HACS) shows the sync state in Home Ass
 
 The app is one more clone of your repo, living inside Home Assistant. It mounts the folders, treats them as git's work tree, and runs a sync cycle every few minutes (or when you press **Sync now**).
 
-```mermaid
-flowchart TB
-    you(["You<br/>laptop · pull requests · web editor"])
-    host[("Git host: GitHub, GitLab…<br/>branches main and box")]
-    you <-- "push to main · merge box" --> host
-
-    subgraph haos["Home Assistant OS"]
-        engine["Git Config Sync app<br/>hcs: git CLI + gitleaks"]
-        folders[/"Mounted folders<br/>/homeassistant · /app_configs · /share<br/>/ssl · /media · /backup · /local_apps"/]
-        core["Home Assistant Core"]
-        engine <-- "git add -A · git read-tree -u" --> folders
-        engine -- "check_config · reload · notifications" --> core
-    end
-
-    host <-- "fetch · push main and box<br/>HTTPS + access token" --> engine
-```
+![You, the git host, and the app inside Home Assistant OS with the mounted folders and Home Assistant Core](https://raw.githubusercontent.com/MaximilianoFelice/homeassistant-config-sync/main/docs/img/components.svg)
 
 ### The two branches
 
 `main` is yours: you push to it, open pull requests against it, merge into it. `box` belongs to the app and always says what is on Home Assistant right now, even during a conflict. Each cycle commits the box's changes to `box`, merges `main` into it the way `git merge main` would, applies the result, and publishes it to both branches. The merge's first parent is `main`, so `git log --first-parent main` reads as your history.
 
-```mermaid
-gitGraph
-    commit id: "your config"
-    branch box
-    checkout box
-    commit id: "box: automations.yaml"
-    checkout main
-    commit id: "you: scripts.yaml"
-    merge box id: "Merge branch 'box'"
-```
+![main and box: the box commits, you commit to main, and the box is merged into main](https://raw.githubusercontent.com/MaximilianoFelice/homeassistant-config-sync/main/docs/img/branches.svg)
 
 *After the merge both branches point to the same commit: the box has your `scripts.yaml` and `main` has the automation edited in the UI.*
 
 ### One sync cycle
 
-```mermaid
-flowchart TD
-    start(["Every 5 min, or Sync now"]) --> fetch["Fetch main and box"]
-    fetch --> snap["Snapshot the box<br/>git add -A, honoring the repo's .gitignore"]
-    snap --> guards{"File too large?<br/>Secrets in block mode?"}
-    guards -- yes --> stop1["Stop and tell you<br/>nothing is committed"]
-    guards -- no --> commit["Commit to box"]
-    commit --> review{"First sync, root change<br/>or many deletions?"}
-    review -- yes --> boxonly["Push only box<br/>you resolve in main"]
-    review -- no --> merge{"Merge main into box<br/>git merge-tree"}
-    merge -- conflict --> boxonly
-    merge -- clean --> apply["Apply to the box<br/>git read-tree -u"]
-    apply --> ha{"Home Assistant config<br/>changed?"}
-    ha -- no --> push["Push main and box"]
-    ha -- yes --> check{"check_config<br/>reports errors?"}
-    check -- no --> reload["Reload Home Assistant"] --> push
-    check -- yes --> norel["Skip the reload, tell you<br/>(no rollback)"] --> push
-```
+![One sync cycle: fetch, snapshot, guards, commit, review, merge, apply, check and reload, push](https://raw.githubusercontent.com/MaximilianoFelice/homeassistant-config-sync/main/docs/img/cycle.svg)
 
 ## The strategy
 
@@ -103,7 +62,13 @@ The full design, with every decision and why, is in [docs/design.md](docs/design
 
 Start it. The first sync pushes only `box` and waits for you, even with an empty repo: with an empty repo you create `main` from `box`; with a repo that already has content, `box` goes on top of `main` and you merge it. Details in the [app documentation](homeassistant_config_sync/DOCS.md).
 
-**The integration (optional).** In HACS: ⋮ → Custom repositories, add the same URL as an *Integration*, install **Git Config Sync** and restart Home Assistant. The app announces itself, so the integration appears under Settings → Devices & services → Discovered. It adds:
+**The integration (optional).**
+
+1. In HACS: ⋮ → Custom repositories, add the same URL as an *Integration*, and install **Git Config Sync**.
+2. **Restart Home Assistant.** The app announces itself when it starts, but Home Assistant only picks that up for an integration it has loaded.
+3. Settings → Devices & services → *Discovered*: **Git Config Sync** → **Add** → **Submit**. Nothing to type.
+
+If it does not show up in *Discovered*, add it by hand (Add integration → Git Config Sync) with the host, port and API token from the app's web UI, section **Home Assistant integration**. It adds:
 
 | Entity | What it shows |
 |---|---|
@@ -154,6 +119,8 @@ mise run test:supervisor   # install, options, startup and a full cycle inside t
 scripts/integration-e2e.sh # discovery → config flow → entities → Sync now
 mise run supervisor:down
 ```
+
+The diagrams are Mermaid sources in [docs/diagrams](docs/diagrams), rendered to `docs/img/*.svg` with `docs/diagrams/render.html` (HACS and Home Assistant do not render Mermaid).
 
 CI runs on every push to `main`: lint, Go tests, E2E with the no-op checker, UI build and tests, integration tests, HACS validation and hassfest.
 

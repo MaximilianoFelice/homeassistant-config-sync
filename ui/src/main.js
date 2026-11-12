@@ -17,10 +17,12 @@ class GcsApp extends LitElement {
     message: { state: true },
     error: { state: true },
     now: { state: true },
+    connection: { state: true },
   };
 
   constructor() {
     super();
+    this.connection = null;
     this.status = null;
     this.conflict = null;
     this.preview = null;
@@ -89,6 +91,14 @@ class GcsApp extends LitElement {
     }
   }
 
+  async showConnection() {
+    try {
+      this.connection = await api.connection();
+    } catch (e) {
+      this.connection = { error: e.message };
+    }
+  }
+
   render() {
     const st = this.status;
     const info = stateInfo(st?.state, st?.syncing || this.busy === "Syncing");
@@ -104,6 +114,33 @@ class GcsApp extends LitElement {
       ${st?.findings?.length ? this.renderFindings(st.findings) : nothing}
       ${st?.check_warnings?.length && st.state !== "check_failed" ? this.renderCheckWarnings(st.check_warnings) : nothing}
       ${this.preview ? this.renderPreview(this.preview) : nothing}
+      ${st ? this.renderIntegration() : nothing}
+    `;
+  }
+
+  renderIntegration() {
+    const c = this.connection;
+    return html`
+      <section class="card">
+        <h2>Home Assistant integration</h2>
+        <p>The optional <code>config_sync</code> integration (from HACS) adds this app's state, a Sync now button and the scanner's findings to Home Assistant. It finds this app by itself: install it, <strong>restart Home Assistant</strong>, then add it from Settings → Devices &amp; services → Discovered.</p>
+        <details>
+          <summary>It does not show up in Discovered</summary>
+          <p>Add it by hand: Settings → Devices &amp; services → Add integration → Git Config Sync, with these values.</p>
+          ${c?.error
+            ? html`<p class="banner error">${c.error}</p>`
+            : c
+              ? html`<dl>
+                  <dt>Host</dt>
+                  <dd class="mono">${c.host}</dd>
+                  <dt>Port</dt>
+                  <dd class="mono">${c.port}</dd>
+                  <dt>API token</dt>
+                  <dd class="mono token">${c.token}</dd>
+                </dl>`
+              : html`<button @click=${() => this.showConnection()}>Show host, port and API token</button>`}
+        </details>
+      </section>
     `;
   }
 
@@ -148,7 +185,7 @@ class GcsApp extends LitElement {
           <section class="card warn">
             <h2>Review needed</h2>
             <p>${REVIEWS[st.review] ?? ""}${st.review === "root_changed" && st.prev_root ? html` (was <code>${st.prev_root}</code>)` : nothing}</p>
-            <p>Only the <code>box</code> branch was pushed, on top of <code>main</code>: comparing them shows exactly how this box differs. Leave the real state in <code>main</code> by merging <code>box</code> (to keep <code>main</code> as it is, <code>git merge -s ours box</code>). Syncing resumes after that.</p>
+            <p>Only the <code>box</code> branch was pushed, on top of <code>main</code> if it exists: comparing them shows exactly how this box differs. Leave the real state in <code>main</code> by merging <code>box</code> (to keep <code>main</code> as it is, <code>git merge -s ours box</code>). If the repo had no <code>main</code> yet, create it from <code>box</code>. Syncing resumes after that.</p>
           </section>
         `;
       case "mass_delete":
@@ -377,6 +414,13 @@ class GcsApp extends LitElement {
     }
     a {
       color: var(--gcs-primary);
+    }
+    summary {
+      cursor: pointer;
+      color: var(--gcs-primary);
+    }
+    .token {
+      word-break: break-all;
     }
   `;
 }

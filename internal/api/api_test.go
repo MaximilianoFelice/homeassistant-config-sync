@@ -120,6 +120,27 @@ func TestAuth(t *testing.T) {
 	}
 }
 
+func TestConnectionOnlyThroughIngress(t *testing.T) {
+	dir := t.TempDir()
+	s := New(Options{Config: config.Default(), StateDir: dir, Sync: (&fake{}).sync, Token: tok, Host: "abc-app", Port: 8099})
+	h := s.Handler()
+
+	// The bearer token alone is not enough: whoever has it already knows it,
+	// and nobody else may read it.
+	if rec, _ := do(t, h, "GET", "/api/v1/connection", "", true); rec.Code != http.StatusForbidden {
+		t.Errorf("with token = %d", rec.Code)
+	}
+	req := httptest.NewRequest("GET", "/api/v1/connection", nil)
+	req.RemoteAddr = IngressIP + ":54321"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var got ConnectionResponse
+	_ = json.Unmarshal(rec.Body.Bytes(), &got)
+	if rec.Code != http.StatusOK || got != (ConnectionResponse{Host: "abc-app", Port: 8099, Token: tok}) {
+		t.Errorf("from ingress = %d %+v", rec.Code, got)
+	}
+}
+
 func TestStatusHidesCacheAndShowsRunningJob(t *testing.T) {
 	f := &fake{block: make(chan struct{})}
 	s := newServer(t, f, `{"state": "conflict", "box_head": "abc", "cache": {"config/a.yaml": {"size": 1, "oid": "x"}}}`)

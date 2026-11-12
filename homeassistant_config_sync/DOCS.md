@@ -60,6 +60,16 @@ secretGroup = 1
 keywords = ["password"]
 ```
 
+## The integration (optional)
+
+The `config_sync` integration shows this app in Home Assistant: the sync state, the last sync, whether something needs you, whether a restart is recommended, the scanner's findings, and a **Sync now** button.
+
+1. In HACS: ⋮ → Custom repositories, add `https://github.com/MaximilianoFelice/homeassistant-config-sync` as an *Integration*, and install **Git Config Sync**.
+2. **Restart Home Assistant.** This app announces itself when it starts; Home Assistant only picks up that announcement for an integration it had loaded, so without the restart nothing shows up.
+3. Settings → Devices & services: **Git Config Sync** appears under *Discovered*. Press **Add**, then **Submit**. There is nothing to type.
+
+If it does not appear in *Discovered*, add it by hand: Settings → Devices & services → Add integration → **Git Config Sync**. The host, port and API token to enter are in this app's web UI, in the **Home Assistant integration** section (shown only to administrators, through the sidebar).
+
 ## Triggering a sync
 
 - The **Sync now** button in the panel, or the `button.git_config_sync_sync_now` entity of the integration (also from automations, with `button.press`).

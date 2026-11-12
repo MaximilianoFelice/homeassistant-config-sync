@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2
+
+- The integration's setup is documented step by step: install it, restart Home Assistant, and add it from *Discovered*. Without the restart Home Assistant ignores the app's announcement.
+- The web UI has a **Home Assistant integration** section with the host, port and API token for adding the integration by hand. They are shown only through Home Assistant's ingress.
+- The integration's form points to those values instead of the app's internal files, with the right hostname.
+- The README's diagrams are images, so they also show up in HACS.
+
 ## 0.1.1
 
 - The first sync always waits for you, even with an empty repo: it pushes only the `box` branch and never creates `main`. With an empty repo, create `main` from `box` (`git push origin origin/box:refs/heads/main`, or from the host's web UI; on GitHub, then set `main` as the default branch). Syncing resumes once `box` is part of `main`.

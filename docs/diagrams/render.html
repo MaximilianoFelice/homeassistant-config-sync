@@ -1,0 +1,49 @@
+<!doctype html>
+<!--
+  Renders the diagrams in this folder to SVG with Mermaid, for docs/img/.
+  The README uses images instead of Mermaid blocks because HACS and Home
+  Assistant do not render Mermaid.
+
+    python3 -m http.server -d docs/diagrams 8000   # then open http://localhost:8000/render.html
+
+  Each diagram has a "Download SVG" link; save it as docs/img/<name>.svg.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Diagrams</title>
+    <style>
+      body { font-family: sans-serif; margin: 24px; background: #fff; color: #222; }
+      figure { margin: 0 0 32px; }
+    </style>
+  </head>
+  <body>
+    <main id="out">Rendering…</main>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs";
+
+      // Plain SVG text (no HTML labels), so the images render the same as <img>.
+      mermaid.initialize({ startOnLoad: false, theme: "default", htmlLabels: false, flowchart: { htmlLabels: false } });
+
+      const names = ["components", "branches", "cycle"];
+      const out = document.getElementById("out");
+      out.textContent = "";
+      window.diagrams = {};
+      for (const name of names) {
+        const src = await (await fetch(`${name}.mmd`)).text();
+        let { svg } = await mermaid.render(`d-${name}`, src);
+        // Natural size instead of width="100%", and a white background so
+        // the image reads on dark pages too.
+        const [, , w, h] = svg.match(/viewBox="([^"]+)"/)[1].split(" ").map(Number);
+        svg = svg
+          .replace(/^<svg([^>]*?) width="100%"/, `<svg$1 width="${Math.ceil(w)}" height="${Math.ceil(h)}"`)
+          .replace(/^<svg([^>]*?) style="[^"]*"/, '<svg$1 style="background-color:#ffffff"');
+        window.diagrams[name] = svg;
+        const fig = document.createElement("figure");
+        fig.innerHTML = `<figcaption>${name} · <a download="${name}.svg" href="data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}">Download SVG</a></figcaption><img alt="${name}" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}">`;
+        out.append(fig);
+      }
+      document.title = "Diagrams: done";
+    </script>
+  </body>
+</html>

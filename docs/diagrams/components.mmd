@@ -1,0 +1,14 @@
+flowchart TB
+    you(["You<br/>laptop · pull requests · web editor"])
+    host[("Git host: GitHub, GitLab…<br/>branches main and box")]
+    you <-- "push to main · merge box" --> host
+
+    subgraph haos["Home Assistant OS"]
+        engine["Git Config Sync app<br/>hcs: git CLI + gitleaks"]
+        folders[/"Mounted folders<br/>/homeassistant · /app_configs · /share<br/>/ssl · /media · /backup · /local_apps"/]
+        core["Home Assistant Core"]
+        engine <-- "git add -A · git read-tree -u" --> folders
+        engine -- "check_config · reload · notifications" --> core
+    end
+
+    host <-- "fetch · push main and box<br/>HTTPS + access token" --> engine

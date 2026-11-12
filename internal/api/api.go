@@ -66,6 +66,10 @@ type Options struct {
 	Token string
 	// TrustedIPs are accepted without a token (by default, only IngressIP).
 	TrustedIPs []string
+	// Host and Port are how the integration reaches this API (shown through
+	// ingress to set the integration up by hand).
+	Host string
+	Port int
 	// OnJob is called when each job finishes (logs).
 	OnJob func(*Job)
 }
@@ -188,6 +192,7 @@ func (s *Server) Handler() http.Handler {
 	api.HandleFunc("POST /api/v1/sync", s.sync)
 	api.HandleFunc("GET /api/v1/jobs/{id}", s.job)
 	api.HandleFunc("GET /api/v1/events", s.eventStream)
+	api.HandleFunc("GET /api/v1/connection", s.connection)
 
 	root := http.NewServeMux()
 	root.Handle("/api/", s.auth(api))
@@ -195,10 +200,14 @@ func (s *Server) Handler() http.Handler {
 	return root
 }
 
+func (s *Server) fromTrusted(r *http.Request) bool {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	return err == nil && s.trusted[host]
+}
+
 func (s *Server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		host, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err == nil && s.trusted[host] {
+		if s.fromTrusted(r) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -209,6 +218,24 @@ func (s *Server) auth(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// ConnectionResponse is the response of GET /api/v1/connection: what the
+// config_sync integration needs to be set up by hand.
+type ConnectionResponse struct {
+	Host  string `json:"host"`
+	Port  int    `json:"port"`
+	Token string `json:"token"`
+}
+
+// connection is served only through ingress (an administrator's browser),
+// never with the bearer token alone.
+func (s *Server) connection(w http.ResponseWriter, r *http.Request) {
+	if !s.fromTrusted(r) {
+		writeError(w, http.StatusForbidden, "the connection details are only shown through Home Assistant's ingress")
+		return
+	}
+	writeJSON(w, http.StatusOK, ConnectionResponse{Host: s.opts.Host, Port: s.opts.Port, Token: s.opts.Token})
 }
 
 // StatusResponse is the response of GET /api/v1/status.

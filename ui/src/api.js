@@ -53,6 +53,7 @@ export const api = {
   conflict: () => request("GET", "conflict"),
   sync: (opts = {}) => request("POST", "sync", opts),
   job: (id) => request("GET", `jobs/${encodeURIComponent(id)}`),
+  connection: () => request("GET", "connection"),
 };
 
 /**

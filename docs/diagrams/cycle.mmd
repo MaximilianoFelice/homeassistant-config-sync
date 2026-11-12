@@ -1,0 +1,16 @@
+flowchart TD
+    start(["Every 5 min, or Sync now"]) --> fetch["Fetch main and box"]
+    fetch --> snap["Snapshot the box<br/>git add -A, honoring the repo's .gitignore"]
+    snap --> guards{{"File too large?<br/>Secrets in block mode?"}}
+    guards -- yes --> stop1["Stop and tell you<br/>nothing is committed"]
+    guards -- no --> commit["Commit to box"]
+    commit --> review{{"First sync, root change<br/>or many deletions?"}}
+    review -- yes --> boxonly["Push only box<br/>you resolve in main"]
+    review -- no --> merge{{"Merge main into box<br/>git merge-tree"}}
+    merge -- conflict --> boxonly
+    merge -- clean --> apply["Apply to the box<br/>git read-tree -u"]
+    apply --> ha{{"Home Assistant config<br/>changed?"}}
+    ha -- no --> push["Push main and box"]
+    ha -- yes --> check{{"check_config<br/>reports errors?"}}
+    check -- no --> reload["Reload Home Assistant"] --> push
+    check -- yes --> norel["Skip the reload, tell you<br/>(no rollback)"] --> push

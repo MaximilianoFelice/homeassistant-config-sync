@@ -32,8 +32,15 @@ func cmdServe(g globalFlags, stdout, stderr io.Writer) int {
 	}
 	logger := log.New(stdout, "", log.LstdFlags)
 
+	ln, err := net.Listen("tcp", g.listen)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "hcs:", err)
+		return exitError
+	}
+	host, _ := os.Hostname()
 	srv := api.New(api.Options{
 		Config: cfg, StateDir: g.stateDir, Sync: e.Sync, Token: tok,
+		Host: host, Port: listenPort(ln),
 		OnJob: func(j *api.Job) {
 			state := "-"
 			if j.Report != nil {
@@ -47,11 +54,6 @@ func cmdServe(g globalFlags, stdout, stderr io.Writer) int {
 		},
 	})
 
-	ln, err := net.Listen("tcp", g.listen)
-	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "hcs:", err)
-		return exitError
-	}
 	httpSrv := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		if err := httpSrv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -102,10 +104,7 @@ func announce(ctx context.Context, logger *log.Logger, ln net.Listener, token st
 		logger.Printf("discovery skipped: %v", err)
 		return
 	}
-	port := 8099
-	if a, ok := ln.Addr().(*net.TCPAddr); ok {
-		port = a.Port
-	}
+	port := listenPort(ln)
 	cfg := map[string]any{"host": host, "port": port, "token": token}
 	for attempt := 1; attempt <= 5; attempt++ {
 		if err = sup.PublishDiscovery(ctx, DiscoveryService, cfg); err == nil {
@@ -119,6 +118,13 @@ func announce(ctx context.Context, logger *log.Logger, ln net.Listener, token st
 		}
 	}
 	logger.Printf("discovery failed (the config_sync integration can still be added by hand): %v", err)
+}
+
+func listenPort(ln net.Listener) int {
+	if a, ok := ln.Addr().(*net.TCPAddr); ok {
+		return a.Port
+	}
+	return 8099
 }
 
 func orManual(d time.Duration) string {
