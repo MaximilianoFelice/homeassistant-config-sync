@@ -21,6 +21,21 @@ addon=$PWD/.sandbox/addon-local
 
 in_dc() { docker exec "$name" "$@"; }
 
+# Runs the Supervisor's `ha` CLI, retrying while the Supervisor is busy with
+# another job of the same group (for instance, still installing Core when
+# Core already reports a version): "Another job is running for job group …".
+ha_retry() {
+  local out
+  for _ in $(seq 1 120); do
+    if out=$(in_dc docker exec hassio_cli ha "$@" 2>&1); then
+      printf '%s\n' "$out"; return 0
+    fi
+    grep -q 'Another job is running' <<<"$out" || { printf '%s\n' "$out" >&2; return 1; }
+    sleep 5
+  done
+  printf '%s\n' "$out" >&2; return 1
+}
+
 case ${1:-} in
   up)
     if docker container inspect "$name" >/dev/null 2>&1; then
@@ -59,10 +74,10 @@ case ${1:-} in
         # and the Core version under test (HA_VERSION, default the one the
         # project targets). This also guards against a job condition that
         # blocks installs in Docker-in-Docker.
-        in_dc docker exec hassio_cli ha jobs options --ignore-conditions healthy >/dev/null
-        in_dc docker exec hassio_cli ha supervisor options --channel stable >/dev/null
+        ha_retry jobs options --ignore-conditions healthy >/dev/null
+        ha_retry supervisor options --channel stable >/dev/null
         echo; echo "pinning Core to ${HA_VERSION:-2026.11.1}"
-        in_dc docker exec hassio_cli ha core update --version "${HA_VERSION:-2026.11.1}" --no-progress >/dev/null
+        ha_retry core update --version "${HA_VERSION:-2026.11.1}" --no-progress >/dev/null
         in_dc docker exec hassio_cli ha core info | grep -E '^(version|machine|arch):' || true
         exit 0
       fi
