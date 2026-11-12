@@ -1,5 +1,5 @@
 name: Git Config Sync
-version: "0.0.1"
+version: "0.1.0"
 slug: homeassistant_config_sync
 description: Two-way sync of your Home Assistant folders with a git repo, using plain git
 url: https://github.com/MaximilianoFelice/homeassistant-config-sync
