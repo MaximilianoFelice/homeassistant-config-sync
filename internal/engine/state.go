@@ -46,6 +46,9 @@ type State struct {
 	Warnings           []secrets.Finding `json:"warnings,omitempty"`
 	BootstrapPending   bool              `json:"bootstrap_pending,omitempty"`
 	RestartRecommended bool              `json:"restart_recommended,omitempty"`
+	// LastNotified identifica el último aviso que pedía intervención, para
+	// no repetirlo en cada ciclo. Se limpia cuando el sync vuelve a idle.
+	LastNotified string `json:"last_notified,omitempty"`
 
 	Cache scan.Cache `json:"cache,omitempty"`
 }

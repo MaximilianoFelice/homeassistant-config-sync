@@ -472,7 +472,21 @@ Lo que este proyecto agrega: sync real en las dos direcciones con merge de 3 ví
 
 > Fuente de la comparación: un relevamiento de noviembre de 2026. Conviene revalidarla antes de publicar v2.
 
-## 17. Decisiones tomadas (2026-11-11)
+## 17. Decisiones tomadas
+
+### Para v1–v3 (2026-11-12)
+
+- **Idioma:** todo en inglés (docs, UI, CLI, logs, notificaciones, comentarios).
+- **Nombre visible:** "Git Config Sync". El slug de la app sigue siendo `homeassistant_config_sync`.
+- **Dominio de la integración (v3):** `config_sync`.
+- **Releases:** un tag `vX.Y.Z` (desde `v0.0.1`) dispara el CI/CD: tests completos (incluidas las pruebas con Docker), build multi-arch, imágenes en GHCR y release de GitHub. El repo es público.
+- **CI por push:** lint, tests con `-race` y E2E con checker noop. Lo pesado solo en el release (o a mano).
+- **Automatizaciones inválidas después del reload:** si aparecen automatizaciones nuevas en `unavailable`, se revierten los archivos, se recarga de nuevo y el estado pasa a `rejected`.
+- **Apps de `app_configs`:** no se reinician; se avisa cuáles conviene reiniciar (permisos mínimos).
+- **`pull_only`:** se implementa. El box descarta sus ediciones locales a favor de `main`, que quedan guardadas en la rama `box`.
+- **UI por ingress:** Lit con un paso de build (node vía mise).
+
+### Para v0 (2026-11-11)
 
 1. **Licencia:** MIT. El repo arranca privado y se hace público cuando haya código.
 2. **Nombres:** slug `homeassistant_config_sync`, binario `hcs`.

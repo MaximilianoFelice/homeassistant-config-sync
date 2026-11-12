@@ -5,6 +5,8 @@ package engine
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -227,15 +229,37 @@ func (e *Engine) Sync(ctx context.Context, so SyncOptions) (*Report, error) {
 	st.Findings, st.Warnings, st.ConflictPaths = rep.Findings, rep.Warnings, rep.ConflictPaths
 	st.BoxHead, _ = e.repo.ResolveRef(ctx, e.boxRef)
 	st.MainHead, _ = e.repo.ResolveRef(ctx, e.trackMain)
+
+	// Un problema que se repite ciclo tras ciclo (por ejemplo, un conflicto
+	// sin resolver o la red caída) se avisa una sola vez: si no, con el
+	// intervalo de 5 minutos llegaría una notificación cada 5 minutos.
+	ev, notify := eventFor(rep)
+	if notify {
+		key := notifyKey(ev)
+		switch {
+		case !ev.Persistent:
+			st.LastNotified = ""
+		case key == st.LastNotified:
+			notify = false
+		default:
+			st.LastNotified = key
+		}
+	}
 	if err := saveState(e.path("state.json"), st); err != nil && cerr == nil {
 		cerr = err
 	}
-	if ev, ok := eventFor(rep); ok {
+	if notify {
 		if err := e.notify.Notify(ctx, ev); err != nil && cerr == nil {
 			rep.Error = "no se pudo notificar a Home Assistant: " + err.Error()
 		}
 	}
 	return rep, cerr
+}
+
+// notifyKey identifica un aviso para no repetirlo.
+func notifyKey(ev ha.Event) string {
+	h := sha256.Sum256([]byte(ev.Type + "\x00" + ev.Message))
+	return hex.EncodeToString(h[:8])
 }
 
 func (e *Engine) cycle(ctx context.Context, st *State, rep *Report, so SyncOptions) error {

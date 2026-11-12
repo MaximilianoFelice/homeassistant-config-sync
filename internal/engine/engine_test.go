@@ -457,6 +457,41 @@ func TestSecretBlocksEverything(t *testing.T) {
 	}
 }
 
+func TestRepeatedProblemIsNotifiedOnce(t *testing.T) {
+	w := newWorld(t)
+	w.seedBox()
+	w.devPush(map[string]string{"config/automations.yaml": "- id: '1'\n  alias: desde main\n"})
+	w.edit("config/automations.yaml", "- id: '1'\n  alias: desde la UI\n")
+
+	before := len(w.events)
+	for range 3 {
+		if rep := w.sync(); rep.State != StateConflict {
+			t.Fatalf("= %+v", rep)
+		}
+	}
+	if got := len(w.events) - before; got != 1 {
+		t.Errorf("tres ciclos con el mismo conflicto mandaron %d avisos, quería 1", got)
+	}
+
+	// Un conflicto distinto (otro path) sí se avisa.
+	w.devPush(map[string]string{"config/scripts.yaml": "hola:\n  sequence: [main]\n"})
+	w.edit("config/scripts.yaml", "hola:\n  sequence: [ui]\n")
+	w.sync()
+	if got := len(w.events) - before; got != 2 {
+		t.Errorf("un conflicto nuevo tenía que avisarse: %d avisos", got)
+	}
+
+	// Resuelto, vuelve a idle, y el mismo problema de nuevo se avisa otra vez.
+	w.devResolve(map[string]string{"config/automations.yaml": "- id: '1'\n  alias: r\n", "config/scripts.yaml": "hola:\n  sequence: [r]\n"})
+	if rep := w.sync(); rep.State != StateIdle {
+		t.Fatalf("= %+v", rep)
+	}
+	st, _ := LoadState(w.opts.StateDir)
+	if st.LastNotified != "" {
+		t.Error("al volver a idle se resetea")
+	}
+}
+
 func TestBrokenMountIsSuspicious(t *testing.T) {
 	w := newWorld(t)
 	w.seedBox()
