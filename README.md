@@ -1,30 +1,137 @@
-# homeassistant-config-sync
+# Git Config Sync
 
-Two-way sync between your Home Assistant folders and a git repo, using plain git, as a Home Assistant OS app called **Git Config Sync**, plus an optional integration that brings its state into Home Assistant.
+**Keep your Home Assistant folders and a git repo in sync, in both directions, with plain git.**
 
-- The repo mirrors the folders the app can see (`homeassistant/`, `app_configs/`, `share/`, `ssl/`, `media/`, `backup/`, `local_apps/`), or just one of them with the `root` option.
-- What changes on the box is committed to the `box` branch and reaches `main`; what is pushed to `main` is applied to the box, and Home Assistant's config is checked and reloaded.
-- What is synced is the repo's own `.gitignore`; merges follow git's rules (`-X` options, `.gitattributes`). Conflicts stop the sync and you merge `box` into `main` like any branch.
-- Any git host over HTTPS with an access token. A secret scanner (gitleaks) warns about possible secrets, never printing them.
+Git Config Sync is a Home Assistant OS app (add-on). Edit an automation in the Home Assistant UI and it shows up as a commit in your repo. Push a change from your laptop, or merge a pull request, and it lands on Home Assistant, which checks and reloads it. When both sides changed the same lines, it stops and lets you merge, like any git branch. It never silently overwrites either side.
 
-Status: v0.1.0. See [docs/design.md](docs/design.md) and the [changelog](homeassistant_config_sync/CHANGELOG.md).
+An optional integration (installable from HACS) shows the sync state in Home Assistant and adds a **Sync now** button.
+
+## What it does
+
+- **Box → repo.** Whatever changes in the folders the app can see (from the UI, the file editor, other apps) is committed to a `box` branch and published to `main`.
+- **Repo → box.** Whatever is pushed to `main` is applied to the box. If it touches Home Assistant's configuration, the app runs Home Assistant's config check, tells you the result, and reloads it.
+- **Conflicts stop, they do not guess.** If the box and `main` changed the same lines, only `box` is pushed and you merge it into `main` like any branch. Git's merge options and `.gitattributes` can resolve some cases automatically if you want them to.
+- **Every folder an app can see.** Home Assistant's configuration, other apps' configuration, `share`, `ssl`, `media`, `backup` and `local_apps`, or just one of them.
+- **Any git host.** GitHub, GitLab, Gitea… over HTTPS with an access token.
+- **A secret scanner** (gitleaks) warns about possible secrets in the repo, without ever printing them.
+
+## How it works
+
+The app is one more clone of your repo, living inside Home Assistant. It mounts the folders, treats them as git's work tree, and runs a sync cycle every few minutes (or when you press **Sync now**).
+
+```mermaid
+flowchart TB
+    you(["You<br/>laptop · pull requests · web editor"])
+    host[("Git host: GitHub, GitLab…<br/>branches main and box")]
+    you <-- "push to main · merge box" --> host
+
+    subgraph haos["Home Assistant OS"]
+        engine["Git Config Sync app<br/>hcs: git CLI + gitleaks"]
+        folders[/"Mounted folders<br/>/homeassistant · /app_configs · /share<br/>/ssl · /media · /backup · /local_apps"/]
+        core["Home Assistant Core"]
+        engine <-- "git add -A · git read-tree -u" --> folders
+        engine -- "check_config · reload · notifications" --> core
+    end
+
+    host <-- "fetch · push main and box<br/>HTTPS + access token" --> engine
+```
+
+### The two branches
+
+`main` is yours: you push to it, open pull requests against it, merge into it. `box` belongs to the app and always says what is on Home Assistant right now, even during a conflict. Each cycle commits the box's changes to `box`, merges `main` into it the way `git merge main` would, applies the result, and publishes it to both branches. The merge's first parent is `main`, so `git log --first-parent main` reads as your history.
+
+```mermaid
+gitGraph
+    commit id: "your config"
+    branch box
+    checkout box
+    commit id: "box: automations.yaml"
+    checkout main
+    commit id: "you: scripts.yaml"
+    merge box id: "Merge branch 'box'"
+```
+
+*After the merge both branches point to the same commit: the box has your `scripts.yaml` and `main` has the automation edited in the UI.*
+
+### One sync cycle
+
+```mermaid
+flowchart TD
+    start(["Every 5 min, or Sync now"]) --> fetch["Fetch main and box"]
+    fetch --> snap["Snapshot the box<br/>git add -A, honoring the repo's .gitignore"]
+    snap --> guards{"File too large?<br/>Secrets in block mode?"}
+    guards -- yes --> stop1["Stop and tell you<br/>nothing is committed"]
+    guards -- no --> commit["Commit to box"]
+    commit --> review{"First sync, root change<br/>or many deletions?"}
+    review -- yes --> boxonly["Push only box<br/>you resolve in main"]
+    review -- no --> merge{"Merge main into box<br/>git merge-tree"}
+    merge -- conflict --> boxonly
+    merge -- clean --> apply["Apply to the box<br/>git read-tree -u"]
+    apply --> ha{"Home Assistant config<br/>changed?"}
+    ha -- no --> push["Push main and box"]
+    ha -- yes --> check{"check_config<br/>reports errors?"}
+    check -- no --> reload["Reload Home Assistant"] --> push
+    check -- yes --> norel["Skip the reload, tell you<br/>(no rollback)"] --> push
+```
+
+## The strategy
+
+Syncing a live system with a repo is a merge problem, and git already solves merge problems very well. So instead of a custom sync engine, the app makes the box behave like **one more clone of the repo**:
+
+- **The box is a clone.** The mounted folders are git's work tree; the repo is bare and lives in the app's private storage, so no `.git` ever appears in your folders.
+- **Git does the work.** `git add -A` takes the snapshot, `git merge-tree` merges, `git read-tree -u` updates the files and refuses if something changed underneath. The app adds only what git does not do: the guards, Home Assistant's check and reload, the secret scanner, and telling you what happened.
+- **The repo configures the app.** What is synced is the repo's own `.gitignore`; per-file merge rules are its `.gitattributes`; secret-scanner rules and ignores are its `.gitleaks.toml` and `.gitleaksignore`. The app's options only say how to reach the repo and how the box behaves.
+- **Humans resolve what is ambiguous.** First syncs against an existing repo, conflicts and mass deletions push only `box` and wait for you to merge in `main`. There is no "accept" button that decides for you.
+
+## Design principles
+
+- **You own your instance.** If you want `/ssl` in your private repo, that is your decision. Nothing is forbidden; the defaults (a base `.gitignore` committed on the first sync) only prevent accidents, and you can change them.
+- **Standard behavior first.** Git's semantics, gitleaks' configuration, the standard `-X` merge options. Anything different would only be added as an option, if someone needs it.
+- **Guards prevent accidents, they do not forbid choices.** Many deletions at once, files too large for a repo, paths that would land on the app's own folders: the sync stops and tells you; you decide.
+- **Inform, never roll back.** If Home Assistant's config check reports errors, the change stays as it came from `main`, the reload is skipped, and you are told. You fix it in `main`.
+- **Nothing silent.** Every state that needs you shows up in the app's panel, the integration's entities, an event and a notification.
+- **Least privilege.** No long-lived Home Assistant token, no manager role; the access token can be limited to a single repo.
+
+The full design, with every decision and why, is in [docs/design.md](docs/design.md).
 
 ## Install
 
-**The app.** In Home Assistant: Settings → Apps → App store → ⋮ → Repositories, add `https://github.com/MaximilianoFelice/homeassistant-config-sync`, and install **Git Config Sync**. In its Configuration, set `repository` (your repo's HTTPS URL) and `token` (an access token with read and write access to the repo's contents; on GitHub, a fine-grained token limited to that repo). Start it. If the repo already has content, the first sync pushes only the `box` branch and waits for you to merge it into `main`. Details in [homeassistant_config_sync/DOCS.md](homeassistant_config_sync/DOCS.md).
+**The app.** In Home Assistant: Settings → Apps → App store → ⋮ → Repositories, add `https://github.com/MaximilianoFelice/homeassistant-config-sync`, and install **Git Config Sync**. In its Configuration set:
 
-**The integration (optional).** In HACS: ⋮ → Custom repositories, add the same URL as an *Integration*, install **Git Config Sync**, and restart Home Assistant. The running app announces itself through Supervisor discovery, so the integration shows up under Settings → Devices & services → Discovered; confirm it. It adds:
+- `repository`: your repo's HTTPS URL, e.g. `https://github.com/you/home.git`;
+- `token`: an access token with read and write access to the repo's contents (on GitHub, a fine-grained token limited to that repo).
+
+Start it. With an empty repo, the first sync publishes everything except what the base `.gitignore` leaves out. With a repo that already has content, it pushes only `box`, on top of `main`, and waits for you to merge it. Details in the [app documentation](homeassistant_config_sync/DOCS.md).
+
+**The integration (optional).** In HACS: ⋮ → Custom repositories, add the same URL as an *Integration*, install **Git Config Sync** and restart Home Assistant. The app announces itself, so the integration appears under Settings → Devices & services → Discovered. It adds:
 
 | Entity | What it shows |
 |---|---|
 | `sensor.git_config_sync_sync_state` | `idle`, `syncing`, `conflict`, `review`, `mass_delete`, `too_large`, `path_collision`, `blocked_secrets`, `check_failed`, `error` |
-| `sensor.git_config_sync_last_sync` | Time of the last finished cycle |
-| `sensor.git_config_sync_possible_secrets` | How many possible secrets the scanner sees in the repo (paths, rules and fingerprints as attributes; never the values) |
-| `binary_sensor.git_config_sync_needs_attention` | On when the state needs a person (anything but `idle` and `syncing`) |
+| `sensor.git_config_sync_last_sync` | When the last cycle finished |
+| `sensor.git_config_sync_possible_secrets` | How many possible secrets the scanner sees (paths, rules and fingerprints as attributes, never values) |
+| `binary_sensor.git_config_sync_needs_attention` | On when the state needs you |
 | `binary_sensor.git_config_sync_restart_recommended` | On when an applied change needs a Home Assistant restart |
-| `button.git_config_sync_sync_now` | Runs a cycle now |
+| `button.git_config_sync_sync_now` | Runs a cycle now (also from automations, with `button.press`) |
 
-It updates as soon as the app finishes a cycle (server-sent events), with a poll every 2 minutes as a fallback.
+## What the repo looks like
+
+With the default `root: /`, the repo mirrors the app's folders one to one:
+
+```
+.gitignore                     what is synced (git's rules)
+.gitattributes                 optional: per-file merge rules
+README.md                      your own files are kept and restored
+homeassistant/
+  configuration.yaml           = /homeassistant/configuration.yaml on the box
+  automations.yaml
+  packages/…
+app_configs/
+  a0d7b954_appdaemon/apps.yaml
+share/…
+```
+
+With `root: /homeassistant` (or `config`) the repo holds only Home Assistant's configuration, without the prefix.
 
 ## Development
 
@@ -37,13 +144,13 @@ mise run ui:build          # Lit web UI, embedded in the binary
 mise run integration:test  # integration tests with the Home Assistant test harness
 ```
 
-Heavier suites, all in Docker and on synthetic fixtures:
+Heavier suites, in Docker and on synthetic fixtures:
 
 ```bash
 mise run test:e2e          # E2E on testdata/ha-config (real check_config)
 mise run test:ha-core      # HA client against a real Core
 mise run supervisor:up     # real Supervisor with the local app
-mise run test:supervisor   # install, options, startup and a full cycle inside the app (root /)
+mise run test:supervisor   # install, options, startup and a full cycle inside the app
 scripts/integration-e2e.sh # discovery → config flow → entities → Sync now
 mise run supervisor:down
 ```
@@ -52,18 +159,16 @@ CI runs on every push to `main`: lint, Go tests, E2E with the no-op checker, UI 
 
 ## Releases
 
-A `vX.Y.Z` tag triggers [the release workflow](.github/workflows/release.yml): the full test suite (including the Docker ones and the Supervisor test), multi-arch images (`amd64`, `aarch64`) pushed to `ghcr.io/maximilianofelice/{arch}-homeassistant-config-sync`, and a GitHub release with the `hcs` binaries and checksums.
+A `vX.Y.Z` tag runs [the release workflow](.github/workflows/release.yml): the full test suite (including the Docker ones and the Supervisor test), multi-arch images (`amd64`, `aarch64`) on `ghcr.io/maximilianofelice/{arch}-homeassistant-config-sync`, and a GitHub release with the `hcs` binaries and checksums.
 
 ```bash
 scripts/release.sh 0.1.1   # bumps the versions, checks the changelog, commits and tags
 git push --follow-tags
 ```
 
-`scripts/release-verify.sh` (also run by the workflow) checks that the tag, `config.yaml`, `manifest.json` and the changelog agree.
-
 ## CLI
 
-The engine is a single binary, `hcs`, which can also run outside Home Assistant:
+The engine is a single binary, `hcs`, which also runs outside Home Assistant:
 
 ```bash
 hcs init     --config cfg.yaml --state-dir DIR   # bare repo, askpass program, API token
@@ -76,4 +181,6 @@ hcs scan-secrets DIR                             # gitleaks with DIR's .gitleaks
 
 `--fs-root DIR` makes the root resolve under `DIR` instead of `/` (tests and local sandboxes).
 
-License: MIT.
+## License
+
+MIT.
