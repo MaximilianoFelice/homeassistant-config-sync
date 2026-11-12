@@ -12,3 +12,4 @@ First release.
 - Modes: `bidirectional`, `push_only`, `pull_only`.
 - Web UI in the sidebar (ingress): status, preview, conflict, deploy key, sync now.
 - Events (`homeassistant_config_sync`) and a persistent notification when something needs you.
+- Supervisor discovery for the optional `config_sync` integration (HACS): sync state, last sync, needs attention and restart recommended entities, and a Sync now button.

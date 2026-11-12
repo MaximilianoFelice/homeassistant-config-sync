@@ -385,7 +385,7 @@ Authentication:
 
 Implemented in M8 (`internal/api`, `hcs serve`):
 
-- All endpoints in the table except `events` (SSE), which is left for v2.
+- All endpoints in the table except `events` (SSE), which came in v2: a `hello` event on connect, a `job` event (with the job as data) when a cycle starts and when it ends, and a keepalive every 25 s.
 - **`plan` / `pending` are exact:** the dry-run builds the snapshot commit (objects only, after the secret scanner passed) without moving `box`, so the merge it reports includes the uncommitted box changes, conflicts included.
 - **One cycle at a time:** if one is already running, `POST /sync` and `GET /pending` respond `409` with the current job. The scheduler skips the tick.
 - **`GET /pending`** is a synchronous dry run.
@@ -393,7 +393,15 @@ Implemented in M8 (`internal/api`, `hcs serve`):
 - **`hcs serve`** accepts `--listen` (default `127.0.0.1:8099`; the app uses `0.0.0.0:8099`), `--stdin` (`hassio.addon_stdin` commands: `"sync"`), and `--sync-on-start`.
 - **Token:** `hcs init` generates `api_token`; init never rotates it. It is compared in constant time.
 
-The v3 HACS integration exposes: a state sensor, last-sync and pending-changes sensors, a conflict `binary_sensor`, a "Sync now" `button`, and device triggers based on the events.
+### The `config_sync` integration (v3)
+
+`custom_components/config_sync`, installable from HACS as a custom repository.
+
+- **Setup:** `hcs serve --discovery` publishes `config_sync` to the Supervisor (`POST /discovery`, allowed by `discovery: [config_sync]` and `hassio_api`) with the app's hostname, port and API token. The integration's `hassio` step creates a single entry (or updates the host and token of the existing one). Outside HA OS it can be added by hand with host, port and token. A `401` starts reauth.
+- **Updates:** a `DataUpdateCoordinator` reads `GET /status` every 2 minutes, and a background task listens to `GET /events` and refreshes on every job event (reconnecting with a 5/10/30/60 s backoff).
+- **Entities** (one device per app): sync state (`enum` sensor), last sync (timestamp), needs attention (`problem` binary sensor), restart recommended, and a "Sync now" button (`POST /sync`; a `409` means a cycle is already running).
+- **Left out for now:** pending-changes sensors and device triggers. The `homeassistant_config_sync` event the app already fires on the HA bus covers automations.
+- **Tests:** the Home Assistant test harness (`pytest-homeassistant-custom-component`) for the flow, the entities, the button and reauth, plus the API client against a real HTTP server; `scripts/integration-e2e.sh` runs discovery → flow → entities → button on the development Supervisor.
 
 ## 13. App configuration (draft `config.yaml`)
 
@@ -465,6 +473,8 @@ The v0 CLI reads exactly the same schema from a file (`--config`), so v1 does no
 | **v2** | Ingress UI (state, pending, conflict, deploy key, "sync now"). Multi-arch builds (aarch64 + amd64) in CI, images on GHCR, repo publishable as an app repository (`repository.yaml`). Optional app restart via `hassio_api`. | Installable from the repo URL on a clean HA. |
 | **v3** | HACS integration: sensors, button, events, and discovery via Supervisor. | Published on HACS (default or custom repo). |
 
+Status (2026-11-12): v0–v3 are implemented and pass every suite locally, including the real Supervisor 2026.11.0 with Core 2026.11.1 in Docker. What is left are the "done when" items that need the outside world: the first release (`v0.0.1`, which publishes the images), a week of real use on a Raspberry Pi, and installing from the repo URL and HACS on a clean HA.
+
 ## 16. What exists today and why it falls short
 
 | Project | What it does well | Why it falls short |
@@ -502,7 +512,7 @@ What this project adds: real two-way sync with a 3-way merge that stops on confl
    ```
    repository.yaml                      app repository (v2)
    homeassistant_config_sync/           app folder: config.yaml, Dockerfile, DOCS.md (v1)
-   custom_components/homeassistant_config_sync/   integration (v3)
+   custom_components/config_sync/       integration (v3)
    hacs.json                            (v3)
    cmd/hcs/, internal/, go.mod          the engine (v0)
    docs/
