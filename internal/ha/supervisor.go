@@ -132,15 +132,23 @@ func (s *Supervisor) CheckConfig(ctx context.Context) (CheckResult, error) {
 	if err := s.post(ctx, "/config/core/check_config", orDefault(s.CheckTimeout, DefaultCheckTimeout), struct{}{}, &resp); err != nil {
 		return CheckResult{}, err
 	}
+	var warnings []string
+	if resp.Warnings != nil {
+		for w := range strings.SplitSeq(*resp.Warnings, "\n") {
+			if w = strings.TrimSpace(w); w != "" {
+				warnings = append(warnings, w)
+			}
+		}
+	}
 	switch resp.Result {
 	case "valid":
-		return CheckResult{Valid: true}, nil
+		return CheckResult{Valid: true, Warnings: warnings}, nil
 	case "invalid":
 		msg := "check_config devolvió invalid sin detalle"
 		if resp.Errors != nil && *resp.Errors != "" {
 			msg = *resp.Errors
 		}
-		return CheckResult{Valid: false, Errors: msg}, nil
+		return CheckResult{Valid: false, Errors: msg, Warnings: warnings}, nil
 	default:
 		return CheckResult{}, fmt.Errorf("check_config devolvió un resultado desconocido: %q", resp.Result)
 	}

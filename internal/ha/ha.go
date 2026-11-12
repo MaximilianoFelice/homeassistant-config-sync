@@ -3,13 +3,38 @@
 // Supervisor (SUPERVISOR_TOKEN) llega en M7.
 package ha
 
-import "context"
+import (
+	"context"
+	"regexp"
+)
 
 // CheckResult es el resultado de check_config.
 type CheckResult struct {
 	Valid bool
 	// Errors es el texto de errores que devuelve HA (vacío si es válida).
 	Errors string
+	// Warnings son los avisos de HA, uno por elemento. Ojo: una integración
+	// con config inválida es un warning, no un error (HA arranca igual y la
+	// desactiva), así que "válida" no alcanza para no romper nada.
+	Warnings []string
+}
+
+var lineRef = regexp.MustCompile(`,? line \d+`)
+
+// NewWarnings devuelve los warnings de after que no estaban en before,
+// comparando sin los números de línea (que se corren con cualquier edición).
+func NewWarnings(before, after []string) []string {
+	seen := map[string]bool{}
+	for _, w := range before {
+		seen[lineRef.ReplaceAllString(w, "")] = true
+	}
+	var out []string
+	for _, w := range after {
+		if !seen[lineRef.ReplaceAllString(w, "")] {
+			out = append(out, w)
+		}
+	}
+	return out
 }
 
 // Checker valida la configuración que está en el disco vivo.

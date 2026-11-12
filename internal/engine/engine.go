@@ -402,7 +402,9 @@ func (e *Engine) cycle(ctx context.Context, st *State, rep *Report, so SyncOptio
 			if e.hooks.beforeApply != nil {
 				e.hooks.beforeApply(attempt)
 			}
-			ares, err = apply.Apply(ctx, e.repo, plan, apply.Options{Matcher: e.m, Checker: e.checker, JournalPath: e.path("apply.json")})
+			ares, err = apply.Apply(ctx, e.repo, plan, apply.Options{
+				Matcher: e.m, Checker: e.checker, JournalPath: e.path("apply.json"), Warnings: e.cfg.CheckWarnings,
+			})
 			if ares != nil {
 				rep.Checked = ares.Checked
 			}

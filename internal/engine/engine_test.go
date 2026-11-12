@@ -309,7 +309,8 @@ func TestMainChangeIsAppliedCheckedAndReloaded(t *testing.T) {
 	if rep.MergeKind != merge.FastForwardBox || !rep.Applied || !rep.Checked || !rep.Reloaded {
 		t.Fatalf("= %+v", rep)
 	}
-	if w.checks != 1 || w.reloads != 1 {
+	// Dos checks: uno antes de escribir (warnings de base) y otro después.
+	if w.checks != 2 || w.reloads != 1 {
 		t.Errorf("checks = %d, reloads = %d", w.checks, w.reloads)
 	}
 	if got := w.disk()["config/scripts.yaml"]; got != "hola:\n  sequence:\n    - delay: 1\n" {
@@ -410,7 +411,7 @@ func TestRejectedChangeIsNotRetriedUntilMainChanges(t *testing.T) {
 	}
 
 	// Mismo main: no se vuelve a intentar.
-	if rep := w.sync(); rep.State != StateRejected || w.checks != 1 {
+	if rep := w.sync(); rep.State != StateRejected || w.checks != 2 {
 		t.Errorf("no debería reintentar: %+v, checks = %d", rep, w.checks)
 	}
 
@@ -704,6 +705,7 @@ func TestCycleAgainstSupervisorAPI(t *testing.T) {
 		t.Fatalf("= %+v", rep)
 	}
 	want := []string{
+		"/core/api/config/core/check_config", // warnings de base
 		"/core/api/config/core/check_config",
 		"/core/api/services/homeassistant/reload_all",
 		"/core/api/events/homeassistant_config_sync",

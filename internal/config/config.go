@@ -30,6 +30,18 @@ const (
 	RestartAuto  = "auto"
 )
 
+// Qué hacer con los warnings de check_config (design.md §7). HA reporta
+// como warning una integración con config inválida: arranca igual, pero sin
+// esa integración.
+const (
+	// WarningsNew rechaza si el cambio agrega warnings que antes no estaban.
+	WarningsNew = "new"
+	// WarningsAny rechaza ante cualquier warning.
+	WarningsAny = "any"
+	// WarningsIgnore solo mira los errores.
+	WarningsIgnore = "ignore"
+)
+
 // Severidad de la regla de webhook_id del escáner de secretos (design.md §8).
 const (
 	SeverityWarn  = "warn"
@@ -45,6 +57,7 @@ type Config struct {
 	SyncIntervalMinutes int        `yaml:"sync_interval_minutes"`
 	Reload              string     `yaml:"reload"`
 	Restart             string     `yaml:"restart"`
+	CheckWarnings       string     `yaml:"check_warnings"`
 	CommitAuthor        string     `yaml:"commit_author"`
 	MaxFileSizeKB       int        `yaml:"max_file_size_kb"`
 	DeleteGuardPercent  int        `yaml:"delete_guard_percent"`
@@ -92,6 +105,7 @@ func Default() *Config {
 		SyncIntervalMinutes: 5,
 		Reload:              ReloadAuto,
 		Restart:             RestartNever,
+		CheckWarnings:       WarningsNew,
 		CommitAuthor:        "Home Assistant <ha@box.local>",
 		MaxFileSizeKB:       1024,
 		DeleteGuardPercent:  20,

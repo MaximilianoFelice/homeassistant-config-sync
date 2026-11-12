@@ -20,14 +20,16 @@ import (
 var ctx = context.Background()
 
 type env struct {
-	t        *testing.T
-	ha       string
-	addons   string
-	repo     *gitx.Repo
-	m        *paths.Matcher
-	journal  string
-	checks   int
-	verdict  ha.CheckResult
+	t       *testing.T
+	ha      string
+	addons  string
+	repo    *gitx.Repo
+	m       *paths.Matcher
+	journal string
+	checks  int
+	verdict ha.CheckResult
+	// results, si no está vacío, se devuelve en orden antes que verdict.
+	results  []ha.CheckResult
 	checkErr error
 }
 
@@ -108,6 +110,11 @@ func (e *env) opts() Options {
 		JournalPath: e.journal,
 		Checker: ha.CheckerFunc(func(context.Context) (ha.CheckResult, error) {
 			e.checks++
+			if len(e.results) > 0 {
+				r := e.results[0]
+				e.results = e.results[1:]
+				return r, nil
+			}
 			return e.verdict, e.checkErr
 		}),
 	}
@@ -221,7 +228,7 @@ func TestApplyWritesDeletesAndChecks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.Applied || !res.Checked || e.checks != 1 {
+	if !res.Applied || !res.Checked || e.checks != 2 { // base + después de escribir
 		t.Errorf("res = %+v, checks = %d", res, e.checks)
 	}
 	want := baseDisk()
@@ -327,6 +334,49 @@ func TestRejectedConfigRollsBackExactly(t *testing.T) {
 	}
 	if e.journalExists() {
 		t.Error("después de un rollback limpio no queda journal")
+	}
+}
+
+func TestWarningsPolicy(t *testing.T) {
+	disabled := "Invalid config for 'input_boolean' at configuration.yaml, line 117: invalid boolean value"
+	old := "Invalid config for 'timer' at configuration.yaml, line 40: offset bad"
+	oldMoved := "Invalid config for 'timer' at configuration.yaml, line 42: offset bad"
+	tests := []struct {
+		name     string
+		policy   string
+		results  []ha.CheckResult // [antes, después] (o solo [después])
+		rejected bool
+	}{
+		{"new: aparece un warning", "new", []ha.CheckResult{{Valid: true}, {Valid: true, Warnings: []string{disabled}}}, true},
+		{"new: el warning ya estaba (con la línea corrida)", "new", []ha.CheckResult{{Valid: true, Warnings: []string{old}}, {Valid: true, Warnings: []string{oldMoved}}}, false},
+		{"new: base inválida, después válida", "new", []ha.CheckResult{{Valid: false, Errors: "x"}, {Valid: true}}, false},
+		{"any: cualquier warning", "any", []ha.CheckResult{{Valid: true, Warnings: []string{old}}}, true},
+		{"ignore: solo errores", "ignore", []ha.CheckResult{{Valid: true, Warnings: []string{disabled}}}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newEnv(t)
+			b := e.commit("", baseFiles)
+			e.materialize(b)
+			r := e.commit(b, map[string]string{"config/configuration.yaml": "homeassistant:\ninput_boolean:\n"})
+			e.results = tt.results
+			opts := e.opts()
+			opts.Warnings = tt.policy
+			_, err := Apply(ctx, e.repo, e.plan(b, r), opts)
+			if tt.rejected {
+				if !errors.Is(err, ErrRejected) || !strings.Contains(err.Error(), "warnings") {
+					t.Fatalf("quería rechazo por warnings, dio %v", err)
+				}
+				assertDisk(t, e.disk(), baseDisk())
+				return
+			}
+			if err != nil {
+				t.Fatalf("no quería rechazo: %v", err)
+			}
+			if e.checks != len(tt.results) {
+				t.Errorf("checks = %d, quería %d", e.checks, len(tt.results))
+			}
+		})
 	}
 }
 

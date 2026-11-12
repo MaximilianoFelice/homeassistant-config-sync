@@ -269,6 +269,13 @@ No hay estrategia automática (`prefer_main` / `prefer_box`) en v0/v1. Queda com
 5. **Check de config:** si cambió algo bajo el mapeo de `/homeassistant`, `POST /api/config/core/check_config`. En `/addon_configs` no hay un check genérico: solo el pre-check de sintaxis.
 6. **Rollback** si el check da `invalid`: se reescriben desde `B` los paths tocados (el CAS garantiza que `B` era el estado previo). Se limpia el write-ahead.
 
+**Warnings de `check_config` (`check_warnings: new|any|ignore`, default `new`).** Probado contra HA 2026.11.1 real: una integración con config inválida (por ejemplo, un `input_boolean` con un valor que no es booleano) **no** es un error para HA, es un warning. La config sale "válida", HA arranca y esa integración queda desactivada. Lo mismo pasa con una automatización con un trigger inexistente, que se desactiva y ni siquiera aparece como warning. Por eso:
+
+- `new` (default): se corre un check **antes** de escribir para tener los warnings de base y se rechaza si el cambio agrega alguno. La comparación ignora los números de línea, que se corren con cualquier edición. Cuesta un check más por apply, pero no deja que un push apague una integración en silencio, y una config que ya arrastra warnings no queda trabada.
+- `any`: rechaza con cualquier warning.
+- `ignore`: solo mira los errores, como el botón "Verificar configuración" de la UI.
+- Las automatizaciones inválidas no las detecta ninguna de las tres. Queda como mejora futura (por ejemplo, revisar el log o el estado `unavailable` de las automatizaciones después del reload).
+
 **Ventana de riesgo:** `check_config` valida el directorio vivo, así que los archivos nuevos están en disco unos segundos antes del rollback. HA no relee YAML por su cuenta (salvo integraciones puntuales que vigilan archivos, como pyscript), así que el riesgo es bajo. Un check en un directorio de staging necesitaría la imagen de HA Core dentro de la app, que pesa demasiado. Se documenta y se descarta para v1.
 
 **Recuperación tras un corte:** el journal tiene dos fases: `writing` (escribiendo o validando) y `checked` (el disco está en `R` y el check pasó; falta mover `box`). Al arrancar:

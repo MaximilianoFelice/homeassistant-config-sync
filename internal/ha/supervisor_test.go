@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -95,7 +96,7 @@ func TestCheckConfig(t *testing.T) {
 				}
 				return
 			}
-			if err != nil || got != tt.want {
+			if err != nil || !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("= %+v, %v; quería %+v", got, err, tt.want)
 			}
 			c := f.calls[0]
@@ -200,6 +201,45 @@ func TestNewSupervisorFromEnv(t *testing.T) {
 	s, err := NewSupervisorFromEnv("notify.x")
 	if err != nil || s.Token != "x" || s.base() != DefaultCoreURL {
 		t.Errorf("= %+v, %v", s, err)
+	}
+}
+
+func TestCheckConfigWarnings(t *testing.T) {
+	f := &fakeCore{handler: func(w http.ResponseWriter, _ *http.Request) bool {
+		_, _ = w.Write([]byte(`{"result": "valid", "errors": null, "warnings": "Invalid config for 'input_boolean' at configuration.yaml, line 3: x\nOtro aviso\n"}`))
+		return true
+	}}
+	got, err := newClient(t, f).CheckConfig(context.Background())
+	if err != nil || !got.Valid || len(got.Warnings) != 2 || got.Warnings[1] != "Otro aviso" {
+		t.Errorf("= %+v, %v", got, err)
+	}
+}
+
+func TestNewWarningsIgnoresLineNumbers(t *testing.T) {
+	before := []string{"Invalid config for 'timer' at configuration.yaml, line 40: bad"}
+	after := []string{"Invalid config for 'timer' at configuration.yaml, line 52: bad", "Invalid config for 'http' at x.yaml, line 1: nuevo"}
+	if got := NewWarnings(before, after); len(got) != 1 || !strings.Contains(got[0], "http") {
+		t.Errorf("= %v", got)
+	}
+}
+
+// Salida real de `check_config --json` (HA 2026.11.1) con una integración
+// inválida (warning) y una config core inválida (error).
+const checkJSON = `Testing configuration at /config
+{"check_type": "full", "total_errors": 1, "total_warnings": 1,
+ "errors": {"http": ["Invalid config for 'http' at configuration.yaml, line 120: expected a port number", {"server_port": "no_es_numero"}]},
+ "warnings": {"input_boolean": ["Invalid config for 'input_boolean' at configuration.yaml, line 117: invalid boolean value", {"e2e_x": {"initial": "no"}}]}}`
+
+func TestCommandCheckerReadsHAJSON(t *testing.T) {
+	cmd := "cat <<'EOF'\n" + checkJSON + "\nEOF\nexit 1"
+	got, err := CommandChecker{Command: cmd}.CheckConfig(context.Background())
+	if err != nil || got.Valid || !strings.Contains(got.Errors, "'http'") || len(got.Warnings) != 1 || !strings.Contains(got.Warnings[0], "input_boolean") {
+		t.Errorf("= %+v, %v", got, err)
+	}
+	ok := `{"total_errors": 0, "total_warnings": 1, "errors": {}, "warnings": {"x": ["aviso"]}}`
+	got, err = CommandChecker{Command: "echo '" + ok + "'"}.CheckConfig(context.Background())
+	if err != nil || !got.Valid || len(got.Warnings) != 1 {
+		t.Errorf("válida con warning = %+v, %v", got, err)
 	}
 }
 

@@ -42,6 +42,9 @@ type Options struct {
 	Matcher     *paths.Matcher
 	Checker     ha.Checker
 	JournalPath string
+	// Warnings es la política para los warnings de check_config
+	// (config.WarningsNew por defecto si está vacío).
+	Warnings string
 
 	// afterOp es un hook de tests: si devuelve true después de la operación
 	// i, Apply sale como si el proceso hubiera muerto (sin rollback).
@@ -112,6 +115,25 @@ func Apply(ctx context.Context, repo *gitx.Repo, plan *Plan, opts Options) (*Res
 		return res, fmt.Errorf("%w: %s", ErrDiskChanged, strings.Join(changed, ", "))
 	}
 
+	needsCheck := false
+	for _, op := range ops {
+		needsCheck = needsCheck || mappings[op.Mapping].Check
+	}
+	policy := opts.Warnings
+	if policy == "" {
+		policy = config.WarningsNew
+	}
+	// Con la política "new" hace falta saber qué warnings hay antes de
+	// escribir. Si el check falla acá, no se tocó nada.
+	var baseline []string
+	if needsCheck && policy == config.WarningsNew {
+		cr, err := opts.Checker.CheckConfig(ctx)
+		if err != nil {
+			return res, fmt.Errorf("%w (antes de escribir): %w", ErrCheckUnavailable, err)
+		}
+		baseline = cr.Warnings
+	}
+
 	// 3. Write-ahead journal.
 	j := &Journal{From: plan.From, To: plan.To, Phase: PhaseWriting, Ops: ops}
 	if err := writeJournal(opts.JournalPath, j); err != nil {
@@ -129,10 +151,6 @@ func Apply(ctx context.Context, repo *gitx.Repo, plan *Plan, opts Options) (*Res
 	}
 
 	// 5. Check de config, si se tocó algún mapeo que lo pide.
-	needsCheck := false
-	for _, op := range ops {
-		needsCheck = needsCheck || mappings[op.Mapping].Check
-	}
 	if needsCheck {
 		res.Checked = true
 		cr, err := opts.Checker.CheckConfig(ctx)
@@ -142,6 +160,16 @@ func Apply(ctx context.Context, repo *gitx.Repo, plan *Plan, opts Options) (*Res
 		res.Check = cr
 		if !cr.Valid {
 			return res, fail(ctx, repo, res, ops, opts, fmt.Errorf("%w:\n%s", ErrRejected, cr.Errors))
+		}
+		var bad []string
+		switch policy {
+		case config.WarningsAny:
+			bad = cr.Warnings
+		case config.WarningsNew:
+			bad = ha.NewWarnings(baseline, cr.Warnings)
+		}
+		if len(bad) > 0 {
+			return res, fail(ctx, repo, res, ops, opts, fmt.Errorf("%w: el cambio agrega warnings (una integración quedaría desactivada):\n%s", ErrRejected, strings.Join(bad, "\n")))
 		}
 	}
 	if opts.afterOp != nil && opts.afterOp(len(ops)) {

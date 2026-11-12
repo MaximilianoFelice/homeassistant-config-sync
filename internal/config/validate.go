@@ -47,6 +47,7 @@ func (c *Config) Validate(opts ValidateOptions) error {
 	oneOf(add, "mode", c.Mode, ModeBidirectional, ModePushOnly, ModePullOnly)
 	oneOf(add, "reload", c.Reload, ReloadAuto, ReloadNone)
 	oneOf(add, "restart", c.Restart, RestartNever, RestartAuto)
+	oneOf(add, "check_warnings", c.CheckWarnings, WarningsNew, WarningsAny, WarningsIgnore)
 	oneOf(add, "secret_scan.webhook_id", c.SecretScan.WebhookID, SeverityWarn, SeverityBlock)
 
 	if c.SyncIntervalMinutes < 0 {
