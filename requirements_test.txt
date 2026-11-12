@@ -1,0 +1,3 @@
+# Test harness for the config_sync integration. It pins the matching
+# homeassistant release; bump it together with hacs.json's minimum version.
+pytest-homeassistant-custom-component==0.13.375

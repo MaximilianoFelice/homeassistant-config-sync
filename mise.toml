@@ -2,6 +2,8 @@
 go = "1.27.4"
 golangci-lint = "2.15.0"
 node = "24.22.3"
+python = "3.14.10"
+uv = "0.13.7"
 
 [tasks.build]
 description = "Build hcs into bin/ (embeds the web UI if it was built)"
@@ -54,6 +56,10 @@ run = "scripts/supervisor-dev.sh down"
 [tasks."test:supervisor"]
 description = "Build, options, startup and a full app cycle on the test Supervisor"
 run = "scripts/supervisor-test.sh"
+
+[tasks."integration:test"]
+description = "Tests of the config_sync integration (HA test harness in .venv)"
+run = "scripts/integration-test.sh"
 
 [tasks.check]
 description = "What must pass before every commit"

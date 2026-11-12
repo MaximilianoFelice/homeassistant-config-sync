@@ -3,6 +3,11 @@
 /bin/
 /homeassistant_config_sync/bin/
 
+# Python virtualenv for the integration tests
+/.venv/
+__pycache__/
+.pytest_cache/
+
 # Web UI: dependencies and build output (embedded into the binary at build time)
 /ui/node_modules/
 /internal/webui/dist/*

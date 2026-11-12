@@ -1,0 +1,28 @@
+{
+  "entity": {
+    "sensor": {
+      "state": {
+        "default": "mdi:source-branch-sync",
+        "state": {
+          "idle": "mdi:source-branch-check",
+          "conflict": "mdi:source-branch-remove",
+          "rejected": "mdi:source-branch-remove",
+          "blocked_secrets": "mdi:shield-key"
+        }
+      },
+      "last_sync": {
+        "default": "mdi:clock-check-outline"
+      }
+    },
+    "binary_sensor": {
+      "restart_recommended": {
+        "default": "mdi:restart"
+      }
+    },
+    "button": {
+      "sync_now": {
+        "default": "mdi:sync"
+      }
+    }
+  }
+}

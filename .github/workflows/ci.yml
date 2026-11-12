@@ -37,3 +37,48 @@ jobs:
         env:
           E2E_CHECKER: noop
         run: scripts/e2e-sandbox.sh
+
+  ui:
+    name: Web UI (tests, build)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+      - name: Build
+        run: mise run ui:build
+      - name: Test
+        working-directory: ui
+        run: npm test
+
+  integration:
+    name: HACS integration (tests, validation)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+      - name: Tests (Home Assistant test harness)
+        run: mise run integration:test
+      - name: Translations are generated from strings.json
+        run: diff -u custom_components/config_sync/strings.json custom_components/config_sync/translations/en.json
+
+  hacs:
+    name: HACS validation
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hacs/action@main
+        with:
+          category: integration
+
+  hassfest:
+    name: hassfest
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master

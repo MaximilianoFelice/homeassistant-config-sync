@@ -10,7 +10,8 @@
 #   scripts/supervisor-dev.sh logs    Supervisor log
 #   scripts/supervisor-dev.sh down    removes the container and its volumes
 #
-# Core ends up at http://127.0.0.1:7123 (localhost only).
+# Core ends up at http://127.0.0.1:7123 (localhost only). Supervisor 2026.11
+# runs Core on port 80 of its host network, so that is what 7123 maps to.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -32,7 +33,7 @@ case ${1:-} in
       -v "$name-docker:/var/lib/docker" \
       -v "$name-share:/mnt/supervisor" \
       -v "$addon:/mnt/supervisor/addons/local/homeassistant_config_sync" \
-      -p 127.0.0.1:7123:8123 \
+      -p 127.0.0.1:7123:80 \
       --entrypoint sleep "$image" infinity >/dev/null
     # The devcontainer uses the Supervisor's dev channel, which may expect a
     # different layout than the one this image prepares. Use the stable

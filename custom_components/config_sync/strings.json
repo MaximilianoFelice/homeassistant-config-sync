@@ -1,0 +1,81 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "user": {
+        "title": "Git Config Sync",
+        "description": "Connect to the Git Config Sync app. When the app runs on this Home Assistant it is discovered automatically; use this form only for an app elsewhere.",
+        "data": {
+          "host": "Host",
+          "port": "Port",
+          "token": "API token"
+        },
+        "data_description": {
+          "host": "Hostname of the app (inside Home Assistant OS: local-homeassistant-config-sync).",
+          "port": "API port of the app (8099).",
+          "token": "Content of the app's /data/api_token."
+        }
+      },
+      "hassio_confirm": {
+        "title": "Git Config Sync",
+        "description": "Add the Git Config Sync app as an integration? You get its sync state, a problem sensor, and a Sync now button."
+      },
+      "reauth_confirm": {
+        "title": "Git Config Sync",
+        "description": "The app rejected the API token. Enter the current one (the content of the app's /data/api_token).",
+        "data": {
+          "token": "API token"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not connect to the app.",
+      "invalid_auth": "The app rejected the API token."
+    },
+    "abort": {
+      "already_configured": "Git Config Sync is already set up.",
+      "reauth_successful": "The API token was updated."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "state": {
+        "name": "Sync state",
+        "state": {
+          "idle": "In sync",
+          "syncing": "Syncing",
+          "conflict": "Conflict",
+          "rejected": "Change rejected",
+          "blocked_secrets": "Possible secret",
+          "bootstrap_review": "Review the first sync",
+          "suspicious_snapshot": "Snapshot stopped",
+          "error": "Error"
+        }
+      },
+      "last_sync": {
+        "name": "Last sync"
+      }
+    },
+    "binary_sensor": {
+      "attention": {
+        "name": "Needs attention"
+      },
+      "restart_recommended": {
+        "name": "Restart recommended"
+      }
+    },
+    "button": {
+      "sync_now": {
+        "name": "Sync now"
+      }
+    }
+  },
+  "exceptions": {
+    "busy": {
+      "message": "A sync is already running."
+    },
+    "sync_failed": {
+      "message": "Could not start the sync: {error}"
+    }
+  }
+}
