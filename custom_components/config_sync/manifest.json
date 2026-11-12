@@ -1,6 +1,7 @@
 {
   "domain": "config_sync",
   "name": "Git Config Sync",
+  "categories": ["computers_network.cloud_developer_tools"],
   "codeowners": ["@MaximilianoFelice"],
   "config_flow": true,
   "documentation": "https://github.com/MaximilianoFelice/homeassistant-config-sync",
