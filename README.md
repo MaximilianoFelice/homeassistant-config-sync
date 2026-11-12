@@ -15,11 +15,13 @@ mise install          # Go y golangci-lint fijados en mise.toml
 mise run check        # lint + tests con -race + build
 ```
 
-## Probar el v0 contra una copia del box
+## Pruebas de punta a punta
 
 ```bash
-scripts/fetch-box-copy.sh   # copia de solo lectura por `ssh <host>`, sin secretos ni .git
-scripts/e2e-sandbox.sh      # escenario completo en .sandbox/e2e, sin tocar el box ni GitHub
+mise run test:e2e          # E2E sobre la config sintética de testdata/ (check_config real en Docker)
+mise run test:ha-core      # cliente de HA contra un Core real en Docker
+mise run supervisor:up     # Supervisor real en Docker con la app local
+mise run test:supervisor   # build, opciones, arranque y ciclo completo de la app
 ```
 
 ## CLI

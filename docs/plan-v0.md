@@ -6,7 +6,7 @@
 
 El v0 es el motor completo del ciclo de sync (`design.md` §6–§9) empaquetado como un CLI, `hcs`, que corre en local contra:
 
-- una **copia del box** (los directorios `/homeassistant` y `/addon_configs` traídos a un sandbox local, solo lectura sobre el box real);
+- una **config de ejemplo sintética** (`testdata/ha-config`) que hace de box, copiada a un sandbox local;
 - un **remoto bare local** (`file://`) en lugar de GitHub;
 - un **checker de HA enchufable** en lugar del Supervisor.
 
@@ -56,7 +56,8 @@ internal/ha/             interfaz Checker/Notifier/Reloader; impl. Supervisor; i
 internal/engine/         ciclo (máquina de estados), lock, state.json, bootstrap, reintentos
 internal/api/            servidor HTTP (§12 del diseño) y scheduler
 internal/testkit/        helpers de escenarios: box falso, remoto bare, clon "dev", fake de HA
-scripts/                 traer la copia del box al sandbox
+scripts/                 E2E, check_config en Docker, Supervisor de prueba
+testdata/ha-config/      config de HA sintética para el E2E
 ```
 
 ## Interfaz del CLI
@@ -189,41 +190,31 @@ Una secuencia aleatoria (semilla registrada) de operaciones: editar, crear o bor
 ## Sandbox en local
 
 ```
-.sandbox/                  (ignorado por git)
-  box/homeassistant/       copia de /homeassistant (sin la denylist)
-  box/addon_configs/       copia de /addon_configs (sin la denylist)
-  origin.git/              remoto bare local
+.sandbox/e2e/              (ignorado por git; se rehace en cada corrida)
+  box/homeassistant/       la config de ejemplo + lo que no puede estar en el repo
+  box/app_configs/         config de una app de ejemplo
+  origin.git/              remoto bare local, sembrado como un repo que ya existía
+  dev/                     clon del "usuario" que pushea a main desde otra máquina
   state/                   el /data del motor
-  config.yaml              config de prueba con mapeos a .sandbox/box/...
+  config.yaml              config de prueba con mapeos a box/...
 ```
 
-- La copia del box se trae con `tar` por `ssh <host>`, en modo lectura. El script excluye la denylist **en el origen**, así `secrets.yaml` ni siquiera viaja.
-- El v0 nunca escribe en el box real ni en GitHub.
-- No se usa el agente SSH ni las claves del usuario: el motor fuerza `IdentityAgent=none` y su propia deploy key. Una prueba opcional contra un repo descartable de GitHub requiere que el usuario cree el repo y cargue la deploy key; se hace solo con su OK.
+- La config de ejemplo es sintética. En el momento se le agregan un `secrets.yaml` falso, una DB, un log, un binario, `.storage/auth` y un YAML de ESPHome con una clave escrita a mano (generada al azar), para probar que nada de eso viaja y que el escáner frena.
+- No se usa red, ni el agente SSH, ni claves de nadie: el motor fuerza `IdentityAgent=none` y el remoto es `file://`.
+- `scripts/fetch-box-copy.sh` queda como herramienta opcional para traer, en modo lectura, una copia de un box propio (host SSH obligatorio). El E2E no la usa.
 
-## Resultado del E2E (M9, 2026-11-11)
+## Resultado del E2E (M9)
 
-`scripts/fetch-box-copy.sh` trae la copia del box por `ssh <host>` en modo lectura. En el add-on de SSH las configs de apps están en `/app_configs`, no en `/addon_configs`. Lo sensible se excluye en el propio box:
+`mise run test:e2e` corre estos pasos con aserciones exactas:
 
-- la denylist dura;
-- todos los `.git` (un clon puede tener credenciales en `.git/config`);
-- `.storage` salvo `lovelace*`;
-- las bases de datos, `.cache`, logs y backups.
-
-Un chequeo final aborta si llegó algo de la denylist.
-
-`scripts/e2e-sandbox.sh` corre 13 pasos sobre una copia de trabajo limpia (repetible). Siembra un "GitHub" local con una config de ejemplo en layout de monorepo y verifica:
-
-| Paso | Resultado |
+| Paso | Qué verifica |
 |---|---|
-| plan / bootstrap contra un repo existente | Muestra exactamente en qué difiere el box del repo existente. |
-| aceptar bootstrap, no-op | `main == box`, segundo sync sin push. |
-| local → box, box → main | OK. |
-| conflicto + resolución en local | El box no se toca durante el conflicto; la resolución llega. |
-| YAML roto desde main | `rejected` por el pre-check, el box intacto; revertir destraba. |
-| el mismo box contra un repo vacío | `blocked_secrets` señalando el YAML de ESPHome con la clave escrita a mano. Nada pusheado, ni commits locales. |
-
-Las dos corridas seguidas dieron `E2E OK`.
+| bootstrap contra un repo existente | `bootstrap_review`; `box` difiere de `main` exactamente en `.storage/lovelace`, un theme y `customize.yaml`; nada de la denylist, binarios ni HACS en `box`; un secreto que ya estaba en `main` no frena. |
+| aceptar bootstrap, no-op | `main == box`; el `secrets.yaml` que había en `main` nunca baja al box; segundo sync sin push. |
+| otra máquina → box, box → main | Llegan, con `check_config` real. |
+| conflicto + resolución | El box no se toca durante el conflicto; la resolución llega. |
+| YAML roto, integración inválida, `http` inválido | `rejected` (pre-check, warning nuevo, error) con rollback; revertir destraba. |
+| el mismo box contra un repo vacío | `blocked_secrets` señalando el YAML de ESPHome; la salida no incluye el valor; nada pusheado, ni commits locales. |
 
 ### Nivel Core en Docker (después del M9)
 

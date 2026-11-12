@@ -1,0 +1,17 @@
+esphome:
+  name: sensor-living
+
+esp32:
+  board: esp32dev
+
+api:
+  encryption:
+    key: !secret sensor_living_api_key
+
+ota:
+  - platform: esphome
+    password: !secret sensor_living_ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password

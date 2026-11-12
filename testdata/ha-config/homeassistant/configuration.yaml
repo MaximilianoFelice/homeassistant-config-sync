@@ -1,0 +1,26 @@
+# Config de ejemplo para los tests E2E. Es sintética: no corresponde a
+# ninguna instalación real.
+homeassistant:
+  name: Casa de ejemplo
+  latitude: !secret home_latitude
+  longitude: !secret home_longitude
+  elevation: 10
+  unit_system: metric
+  time_zone: UTC
+  customize: !include customize.yaml
+  packages: !include_dir_named packages
+
+default_config:
+
+logger:
+  default: warning
+
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+
+template:
+  - sensor:
+      - name: Temperatura promedio
+        unit_of_measurement: "°C"
+        state: "{{ 21 }}"

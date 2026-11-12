@@ -23,7 +23,7 @@ description = "Cliente de HA contra un Core real en Docker (scripts/ha-core-test
 run = "scripts/ha-core-test.sh"
 
 [tasks."test:e2e"]
-description = "E2E sobre la copia del box con check_config real (requiere scripts/fetch-box-copy.sh)"
+description = "E2E sobre la config sintética de testdata/ con check_config real en Docker (E2E_CHECKER=noop sin Docker)"
 run = "scripts/e2e-sandbox.sh"
 
 [tasks."supervisor:up"]

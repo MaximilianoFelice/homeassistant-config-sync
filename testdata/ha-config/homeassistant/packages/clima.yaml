@@ -1,0 +1,7 @@
+input_number:
+  temperatura_objetivo:
+    name: Temperatura objetivo
+    min: 16
+    max: 28
+    step: 0.5
+    unit_of_measurement: "°C"

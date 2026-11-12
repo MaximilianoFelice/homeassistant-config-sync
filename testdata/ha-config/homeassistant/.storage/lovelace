@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "minor_version": 1,
+  "key": "lovelace",
+  "data": {
+    "config": {
+      "views": [
+        {
+          "title": "Casa",
+          "cards": [
+            {"type": "entities", "entities": ["input_boolean.luz_entrada", "input_number.temperatura_objetivo"]}
+          ]
+        }
+      ]
+    }
+  }
+}

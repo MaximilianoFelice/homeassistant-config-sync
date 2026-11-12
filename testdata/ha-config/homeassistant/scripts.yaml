@@ -1,0 +1,6 @@
+apagar_todo:
+  alias: Apagar todo
+  sequence:
+    - action: input_boolean.turn_off
+      target:
+        entity_id: input_boolean.luz_entrada

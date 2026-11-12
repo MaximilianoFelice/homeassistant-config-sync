@@ -1,0 +1,8 @@
+{
+  "domain": "ejemplo",
+  "name": "Integración de ejemplo (instalada por HACS, no se versiona)",
+  "version": "0.0.1",
+  "codeowners": [],
+  "documentation": "https://example.invalid",
+  "iot_class": "local_polling"
+}
