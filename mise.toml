@@ -26,6 +26,18 @@ run = "scripts/ha-core-test.sh"
 description = "E2E sobre la copia del box con check_config real (requiere scripts/fetch-box-copy.sh)"
 run = "scripts/e2e-sandbox.sh"
 
+[tasks."supervisor:up"]
+description = "Supervisor real en Docker (devcontainer de add-ons) con la app local montada"
+run = "scripts/supervisor-dev.sh up"
+
+[tasks."supervisor:down"]
+description = "Borra el Supervisor de prueba y sus volúmenes"
+run = "scripts/supervisor-dev.sh down"
+
+[tasks."test:supervisor"]
+description = "Build, opciones, arranque y ciclo completo de la app en el Supervisor de prueba"
+run = "scripts/supervisor-test.sh"
+
 [tasks.check]
 description = "Lo que tiene que pasar antes de cada commit"
 depends = ["lint", "test", "build"]

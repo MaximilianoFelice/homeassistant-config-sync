@@ -233,7 +233,29 @@ Con la imagen `ghcr.io/home-assistant/home-assistant:2026.11.1` (versión fijada
 - **`mise run test:ha-core`:** levanta un Core descartable con una config mínima, hace el onboarding con un usuario de prueba y corre `internal/ha` contra la API real (`check_config`, `reload_all`, evento, notificación persistente, `notify_service` inexistente, token inválido).
 - **Hallazgo:** para la API REST casi todo es warning (ver `design.md` §7), lo que justifica `check_warnings: new`.
 
-Sigue sin cubrir: el proxy del Supervisor con `SUPERVISOR_TOKEN`, los mounts de la app y SSH contra GitHub. Es el nivel Supervisor.
+### Nivel Supervisor en Docker
+
+`scripts/supervisor-dev.sh up` levanta un Supervisor real con el devcontainer oficial de add-ons y monta `homeassistant_config_sync/` como app local. `scripts/supervisor-test.sh` la construye, la instala, valida las opciones, la arranca y corre `scripts/inapp-test.sh` adentro del contenedor.
+
+Para que el devcontainer funcione con el Supervisor de 2026.11 hubo que hacerle tres cambios:
+
+- usar el canal **stable** (el dev espera otra estructura);
+- montar el `/run/supervisor` del host en **`/run/os`**;
+- correr `supervisor_run` con una pseudo-terminal (hace `stty`).
+
+Además, el entorno queda `unhealthy` (`docker_gateway_unprotected`): se ignora con `ha jobs options --ignore-conditions healthy`, solo en este entorno descartable. Después se baja Core a 2026.11.1.
+
+Resultado (`INAPP OK`):
+
+- el esquema de opciones anidado (`mappings`, `secret_scan`) valida;
+- el Supervisor construye la app desde `alpine:3.22` (no completa `BUILD_FROM` sin `build.yaml`);
+- la app arranca, muestra la deploy key y levanta la API; el sync inicial contra un repo inexistente falla de forma limpia;
+- desde adentro: `SUPERVISOR_TOKEN`, `/homeassistant` y `/app_configs` montados y escribibles;
+- un ciclo completo contra un remoto local aplica un cambio con `check_config` y `reload_all` reales por el proxy, rechaza un `input_boolean` inválido con rollback y vuelve a `idle`.
+- `POST /addons/<slug>/options` **reemplaza** las opciones (no las mezcla).
+- `all_addon_configs` quedó como nombre heredado: se usa `all_app_configs` → `/app_configs`.
+
+Sin cubrir todavía: SSH contra GitHub con la deploy key, y aarch64 (el Supervisor de prueba es amd64).
 
 ## Riesgos y cosas a validar temprano
 
@@ -243,4 +265,5 @@ Sigue sin cubrir: el proxy del Supervisor con `SUPERVISOR_TOKEN`, los mounts de 
 | `check_config` vía proxy del Supervisor con `SUPERVISOR_TOKEN` | Antes de v1, con una app mínima en `/addons`. |
 | `merge-tree --write-tree` y su salida de conflictos parseable | M3 (se usa `-z --name-only`). |
 | Tiempo de `check_config` en una Raspberry Pi | v1 (timeout configurable, default 120 s). |
-| Que el esquema de opciones del Supervisor acepte `mappings` (lista de objetos con listas de strings adentro) | v1. Plan B: los mapeos van en un YAML aparte dentro del `addon_config` de la app, con el mismo esquema que lee `config.Load`. |
+| Que el esquema de opciones del Supervisor acepte `mappings` (lista de objetos con listas de strings adentro) | Resuelto: lo acepta (Supervisor 2026.11.0, ver "Nivel Supervisor en Docker"). |
+| `check_config` vía proxy del Supervisor con `SUPERVISOR_TOKEN` | Resuelto: funciona con `homeassistant_api: true`. |

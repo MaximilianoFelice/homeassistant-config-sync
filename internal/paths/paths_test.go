@@ -39,8 +39,8 @@ func TestClassifyRepoPathWithDefaults(t *testing.T) {
 		{"config/.storage/lovelace", true, PushOnly, "", "/homeassistant/.storage/lovelace"},
 		{"config/.storage/lovelace.dashboard_casa", true, PushOnly, "", "/homeassistant/.storage/lovelace.dashboard_casa"},
 		{"config/.storage/lovelace_resources", true, PushOnly, "", "/homeassistant/.storage/lovelace_resources"},
-		{"app_configs/core_mosquitto/mosquitto.conf", true, Both, "", "/addon_configs/core_mosquitto/mosquitto.conf"},
-		{"app_configs/45df7312_zigbee2mqtt/configuration.yaml", true, Both, "", "/addon_configs/45df7312_zigbee2mqtt/configuration.yaml"},
+		{"app_configs/core_mosquitto/mosquitto.conf", true, Both, "", "/app_configs/core_mosquitto/mosquitto.conf"},
+		{"app_configs/45df7312_zigbee2mqtt/configuration.yaml", true, Both, "", "/app_configs/45df7312_zigbee2mqtt/configuration.yaml"},
 
 		// Denylist dura: gana sobre la whitelist.
 		{"config/secrets.yaml", false, 0, ReasonHardDenied, "/homeassistant/secrets.yaml"},
@@ -70,7 +70,7 @@ func TestClassifyRepoPathWithDefaults(t *testing.T) {
 		{"config/go2rtc", false, 0, ReasonNotIncluded, "/homeassistant/go2rtc"},
 		{"config/www/foto.jpg", false, 0, ReasonNotIncluded, "/homeassistant/www/foto.jpg"},
 		{"config/.HA_VERSION", false, 0, ReasonNotIncluded, "/homeassistant/.HA_VERSION"},
-		{"app_configs/a0d7b954_vscode/settings.json", false, 0, ReasonNotIncluded, "/addon_configs/a0d7b954_vscode/settings.json"},
+		{"app_configs/a0d7b954_vscode/settings.json", false, 0, ReasonNotIncluded, "/app_configs/a0d7b954_vscode/settings.json"},
 
 		// Fuera de los mapeos: es del repo y nunca baja al box.
 		{"README.md", false, 0, ReasonOutsideMappings, ""},
@@ -118,7 +118,7 @@ func TestClassifyBoxPath(t *testing.T) {
 		{"/homeassistant/automations.yaml", true, "", "config/automations.yaml"},
 		{"/homeassistant/packages/a.yaml", true, "", "config/packages/a.yaml"},
 		{"/homeassistant/secrets.yaml", false, ReasonHardDenied, "config/secrets.yaml"},
-		{"/addon_configs/core_mosquitto/mosquitto.conf", true, "", "app_configs/core_mosquitto/mosquitto.conf"},
+		{"/app_configs/core_mosquitto/mosquitto.conf", true, "", "app_configs/core_mosquitto/mosquitto.conf"},
 		{"/homeassistant", false, ReasonOutsideMappings, ""},
 		{"/homeassistant2/a.yaml", false, ReasonOutsideMappings, ""},
 		{"/etc/passwd", false, ReasonOutsideMappings, ""},

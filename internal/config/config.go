@@ -116,7 +116,7 @@ func Default() *Config {
 }
 
 // DefaultMappings devuelve los mapeos por defecto: config/ → /homeassistant
-// con la whitelist segura, y app_configs/ → /addon_configs vacío (hay que
+// con la whitelist segura, y app_configs/ → /app_configs vacío (hay que
 // elegir apps explícitamente).
 func DefaultMappings() []Mapping {
 	return []Mapping{
@@ -147,7 +147,7 @@ func DefaultMappings() []Mapping {
 		},
 		{
 			Repo:     "app_configs",
-			Box:      "/addon_configs",
+			Box:      "/app_configs",
 			Include:  []string{},
 			PushOnly: []string{},
 			Exclude:  []string{},

@@ -1,0 +1,92 @@
+name: Config Sync
+version: "0.1.0-dev"
+slug: homeassistant_config_sync
+description: Sync bidireccional de la configuración de Home Assistant con un repo git (solo SSH, con check de config)
+url: https://github.com/MaximilianoFelice/homeassistant-config-sync
+arch:
+  - aarch64
+  - amd64
+startup: application
+boot: auto
+homeassistant_api: true
+stdin: true
+map:
+  - type: homeassistant_config
+    read_only: false
+  - type: all_app_configs
+    read_only: false
+options:
+  repository: ""
+  main_branch: main
+  box_branch: box
+  mode: bidirectional
+  sync_interval_minutes: 5
+  reload: auto
+  restart: never
+  check_warnings: new
+  commit_author: "Home Assistant <ha@box.local>"
+  max_file_size_kb: 1024
+  delete_guard_percent: 20
+  delete_guard_files: 25
+  notify_service: ""
+  ssh_known_hosts: []
+  mappings:
+    - repo: config
+      box: /homeassistant
+      check: true
+      include:
+        - "**/*.yaml"
+        - "**/*.yml"
+        - "custom_templates/**/*.jinja"
+        - "python_scripts/**/*.py"
+        - "pyscript/**/*.py"
+      push_only:
+        - ".storage/lovelace*"
+      exclude:
+        - ".cache/**"
+        - "deps/**"
+        - "tts/**"
+        - "backups/**"
+        - "custom_components/**"
+        - "esphome/.esphome/**"
+        - "**/__pycache__/**"
+        - "ip_bans.yaml"
+    - repo: app_configs
+      box: /app_configs
+      check: false
+      include: []
+      push_only: []
+      exclude: []
+  secret_scan:
+    webhook_id: warn
+    allow: []
+schema:
+  repository: str
+  main_branch: str
+  box_branch: str
+  mode: list(bidirectional|push_only)
+  sync_interval_minutes: int(0,)
+  reload: list(auto|none)
+  restart: list(never|auto)
+  check_warnings: list(new|any|ignore)
+  commit_author: str
+  max_file_size_kb: int(1,)
+  delete_guard_percent: int(1,100)
+  delete_guard_files: int(1,)
+  notify_service: str?
+  ssh_known_hosts:
+    - str
+  mappings:
+    - repo: str
+      box: str
+      check: bool
+      include:
+        - str
+      push_only:
+        - str
+      exclude:
+        - str
+  secret_scan:
+    webhook_id: list(warn|block)
+    allow:
+      - str

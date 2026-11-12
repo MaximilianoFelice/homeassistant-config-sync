@@ -1,6 +1,7 @@
 # Binarios y artefactos de build
 /dist/
 /bin/
+/homeassistant_config_sync/bin/
 
 # Estado local de pruebas (copias del box, repos bare de prueba, deploy keys de test)
 /.sandbox/

@@ -24,7 +24,7 @@ Es open source desde el día uno y se distribuye como repo de apps de HA (no por
 | Término | Significado |
 |---|---|
 | **box** | La instancia de HA OS donde corre la app. |
-| **disco vivo** | Los directorios montados en la app: `/homeassistant` y `/addon_configs`. |
+| **disco vivo** | Los directorios montados en la app: `/homeassistant` y `/app_configs`. |
 | **path gestionado** | Un archivo del disco vivo que entra por la whitelist de su mapeo. Solo esos se leen, escriben o borran. |
 | **rama `box`** | Rama que refleja el estado gestionado del box. La escribe solo el motor. |
 | **rama `main`** | Rama de trabajo humano. La escriben los usuarios; el motor solo la avanza con fast-forward. |
@@ -46,7 +46,7 @@ Es open source desde el día uno y se distribuye como repo de apps de HA (no por
 │  stdin ─────┼──► motor (ciclo) ──► git CLI (repo bare en /data/repo.git)│
 │  API HTTP ──┘        │                                                 │
 │                      ├──► escaneo / apply ──► /homeassistant (rw)      │
-│                      │                   └──► /addon_configs (rw)      │
+│                      │                   └──► /app_configs (rw)      │
 │                      └──► HA Core API (http://supervisor/core/api,     │
 │                            SUPERVISOR_TOKEN): check_config, reloads,   │
 │                            notificaciones, eventos                     │
@@ -66,9 +66,11 @@ Decisiones de fondo:
 map:
   - type: homeassistant_config   # → /homeassistant
     read_only: false
-  - type: all_addon_configs      # → /addon_configs
+  - type: all_app_configs        # → /app_configs
     read_only: false
 ```
+
+El Supervisor 2026.11 renombró los "add-ons" a "apps": `all_addon_configs` (que montaba en `/addon_configs`) quedó como nombre heredado, con un warning en el log. Se usa `all_app_configs`, verificado con el Supervisor 2026.11.0 en Docker.
 
 `/data` (privado de la app) guarda el estado del motor; no hace falta mapearlo.
 
@@ -79,7 +81,7 @@ Por defecto:
 | Prefijo en el repo | Directorio en el box |
 |---|---|
 | `config/` | `/homeassistant` |
-| `app_configs/` | `/addon_configs` |
+| `app_configs/` | `/app_configs` |
 
 ```yaml
 mappings:
@@ -89,7 +91,7 @@ mappings:
     push_only: [...]
     exclude: [...]
   - repo: app_configs
-    box: /addon_configs
+    box: /app_configs
     include: []         # vacío por defecto: hay que elegir apps explícitamente
     push_only: []
     exclude: []
@@ -266,7 +268,7 @@ No hay estrategia automática (`prefer_main` / `prefer_box`) en v0/v1. Queda com
 2. **Write-ahead:** se graba en `state.json` `{"applying": {"from": B, "to": R, "paths": [...]}}`.
 3. **Compare-and-swap por path:** antes de escribir, cada path a tocar tiene que estar en disco exactamente como en `B` (o no existir, si en `B` no existe). Si alguien lo editó desde el snapshot, se aborta el apply sin escribir nada y se vuelve al paso 1 del ciclo.
 4. **Escritura atómica:** archivo temporal en el mismo directorio + `rename`. Se crean directorios padre si faltan. Los borrados eliminan el archivo y los directorios que queden vacíos, solo dentro del mapeo. El bit de ejecución sigue a git; el resto de los permisos se preserva si el archivo ya existía.
-5. **Check de config:** si cambió algo bajo el mapeo de `/homeassistant`, `POST /api/config/core/check_config`. En `/addon_configs` no hay un check genérico: solo el pre-check de sintaxis.
+5. **Check de config:** si cambió algo bajo el mapeo de `/homeassistant`, `POST /api/config/core/check_config`. En `/app_configs` no hay un check genérico: solo el pre-check de sintaxis.
 6. **Rollback** si el check da `invalid`: se reescriben desde `B` los paths tocados (el CAS garantiza que `B` era el estado previo). Se limpia el write-ahead.
 
 **Warnings de `check_config` (`check_warnings: new|any|ignore`, default `new`).** Probado contra HA 2026.11.1 real: una integración con config inválida (por ejemplo, un `input_boolean` con un valor que no es booleano) **no** es un error para HA, es un warning. La config sale "válida", HA arranca y esa integración queda desactivada. Lo mismo pasa con una automatización con un trigger inexistente, que se desactiva y ni siquiera aparece como warning. Por eso:
@@ -295,7 +297,7 @@ No hay estrategia automática (`prefer_main` / `prefer_box`) en v0/v1. Queda com
 - `reload: auto` (default): si el apply tocó `/homeassistant` y el check pasó, se llama `homeassistant.reload_all` (recarga todo lo que es recargable por YAML).
 - `reload: none`: no recarga nada; solo avisa.
 - **Restart nunca es automático por defecto.** Si cambiaron paths que suelen requerir restart (`configuration.yaml` fuera de bloques recargables, `packages/**`, `custom_components/**` si alguien los incluyó), el estado pasa a tener `restart_recommended: true` y se manda una notificación. `restart: auto` existe como opt-in explícito para quien lo quiera.
-- En `/addon_configs` el motor no reinicia apps. Avisa qué apps tuvieron cambios. Reiniciar apps desde el motor queda para v2, con `hassio_api`.
+- En `/app_configs` el motor no reinicia apps. Avisa qué apps tuvieron cambios. Reiniciar apps desde el motor queda para v2, con `hassio_api`.
 
 ## 8. Escáner de secretos
 
@@ -337,7 +339,7 @@ Con `homeassistant_api: true` la app recibe `SUPERVISOR_TOKEN` y habla con Core 
 | Notificar | `POST /api/services/persistent_notification/create` con `notification_id` fijo (se actualiza en vez de apilarse). Opcional: `notify_service` (p. ej. `notify.mobile_app_x`). |
 | Eventos | `POST /api/events/homeassistant_config_sync` con `{"type": "sync_finished" \| "conflict" \| "rejected" \| "blocked_secrets" \| "error", ...}`. Sirve para automatizaciones desde v1, sin esperar la integración. |
 
-A verificar en v1: que `check_config` funcione con el token del Supervisor a través del proxy. Si no, la alternativa es `POST http://supervisor/core/check` con `hassio_api: true` y `hassio_role: homeassistant`.
+**Verificado (2026-11-11)** con el Supervisor 2026.11.0 y Core 2026.11.1 en Docker (`scripts/supervisor-dev.sh` + `scripts/supervisor-test.sh`): desde la app, con su `SUPERVISOR_TOKEN` y `homeassistant_api: true`, `check_config`, `reload_all`, el evento y la notificación funcionan a través del proxy. No hace falta `hassio_api`.
 
 Comportamiento implementado (M7, `internal/ha/supervisor.go`):
 
@@ -463,7 +465,7 @@ El CLI de v0 lee exactamente el mismo esquema desde un archivo (`--config`), as�
 | Proyecto | Qué hace bien | Por qué no alcanza |
 |---|---|---|
 | **Git pull** (app oficial) | Simple y mantenida. | Solo pull, pisa el box, sin merge. |
-| **HA Git Sync** (a4ng3i) | Buen diseño, el más cercano a este: sync en las dos direcciones. | Sin código público (no se puede auditar ni contribuir), solo `/config` (sin `/addon_configs`), y autentica contra HA con un token de admin de larga duración. |
+| **HA Git Sync** (a4ng3i) | Buen diseño, el más cercano a este: sync en las dos direcciones. | Sin código público (no se puede auditar ni contribuir), solo `/config` (sin `/app_configs`), y autentica contra HA con un token de admin de larga duración. |
 | **HomeAssistantVersionControl** (saihgupr) | Historial de cambios, fácil de instalar. | Solo push (no aplica nada desde el repo), y la auth con el remoto es un token en la URL HTTPS. |
 
 Lo que este proyecto agrega: sync real en las dos direcciones con merge de 3 vías y freno ante conflictos, apply condicionado al check de config, monorepo `config/` + `app_configs/`, auth solo por deploy key SSH, cero tokens de HA de larga duración y código abierto desde el día uno.
