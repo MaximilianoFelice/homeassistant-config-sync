@@ -284,16 +284,18 @@ func (e *Engine) cycle(ctx context.Context, st *State, rep *Report, so SyncOptio
 			}
 		}
 		if localBox == "" {
+			if originBox == "" && st.Review == "" {
+				// First sync, even against an empty repo: only box is pushed
+				// and the user decides what main holds by merging it.
+				st.Review = ReviewFirstSync
+			}
 			switch {
 			case originBox != "":
 				localBox = originBox
 			case originMain != "":
-				// First sync against a main with content: the snapshot goes
-				// on top of main, so main..box shows how the box differs.
+				// The snapshot goes on top of main, so main..box shows how
+				// the box differs.
 				localBox = originMain
-				if st.Review == "" {
-					st.Review = ReviewFirstSync
-				}
 			}
 			if localBox != "" && !so.DryRun {
 				if err := e.repo.UpdateRef(ctx, e.boxRef, localBox, ""); err != nil {
@@ -574,8 +576,9 @@ func (e *Engine) commit(ctx context.Context, tree string, parents []string, msg,
 // reviewResolved reports whether the user resolved a review in main.
 func (e *Engine) reviewResolved(ctx context.Context, reason, b, main string) (bool, error) {
 	if main == "" {
-		// Nothing to resolve against: an empty repo takes the box as is.
-		return reason != ReviewMassDelete, nil
+		// No main yet: the user creates it from box (a PR, or
+		// `git push origin origin/box:refs/heads/main`).
+		return false, nil
 	}
 	if ok, err := e.repo.IsAncestor(ctx, b, main); err != nil || ok {
 		return ok, err

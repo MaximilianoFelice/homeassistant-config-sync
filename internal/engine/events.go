@@ -75,7 +75,7 @@ func (e *Engine) stateEvent(st *State, rep *Report) (ha.Event, bool) {
 		var why string
 		switch rep.Review {
 		case ReviewFirstSync:
-			why = "This is the first sync against a repo that already has content."
+			why = "This is the first sync."
 		case ReviewRootChanged:
 			why = fmt.Sprintf("The root changed from %s to %s.", st.PrevRoot, e.root)
 		case ReviewMassDelete:

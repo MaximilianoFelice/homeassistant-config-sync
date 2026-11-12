@@ -113,6 +113,12 @@ func (e *env) mergeBoxIntoMain() {
 	e.t.Helper()
 	box, _ := e.remote.ResolveRef(ctx, "refs/heads/box")
 	main, _ := e.remote.ResolveRef(ctx, "refs/heads/main")
+	if main == "" {
+		if err := e.remote.UpdateRef(ctx, "refs/heads/main", box, ""); err != nil {
+			e.t.Fatal(err)
+		}
+		return
+	}
 	if ok, _ := e.remote.IsAncestor(ctx, main, box); ok {
 		if err := e.remote.UpdateRef(ctx, "refs/heads/main", box, main); err != nil {
 			e.t.Fatal(err)
@@ -133,6 +139,21 @@ func (e *env) mergeBoxIntoMain() {
 	}
 }
 
+// firstSync runs the first sync, which waits for the user, merges box into
+// main as a person would, and runs the cycle that resumes syncing.
+func (e *env) firstSync() *Report {
+	e.t.Helper()
+	rep := e.sync()
+	wantState(e.t, rep, StateReview)
+	if rep.Review != ReviewFirstSync {
+		e.t.Fatalf("review = %s, want %s", rep.Review, ReviewFirstSync)
+	}
+	e.mergeBoxIntoMain()
+	rep = e.sync()
+	wantState(e.t, rep, StateIdle)
+	return rep
+}
+
 func wantState(t *testing.T, rep *Report, state string) {
 	t.Helper()
 	if rep.State != state {
@@ -140,7 +161,7 @@ func wantState(t *testing.T, rep *Report, state string) {
 	}
 }
 
-func TestFirstSyncToEmptyRepoPublishesEverythingWithBaseGitignore(t *testing.T) {
+func TestFirstSyncToEmptyRepoWaitsForTheUserWithBaseGitignore(t *testing.T) {
 	e := newEnv(t)
 	e.write("homeassistant/configuration.yaml", "homeassistant:\n")
 	e.write("homeassistant/.storage/auth", "tokens")
@@ -151,22 +172,34 @@ func TestFirstSyncToEmptyRepoPublishesEverythingWithBaseGitignore(t *testing.T) 
 	e.write("ssl/privkey.pem", "key")
 	e.write("backup/full.tar", "tar")
 
+	// Even with an empty repo, only box is pushed: main is the user's call.
 	rep := e.sync()
-	wantState(t, rep, StateIdle)
-	main := e.branch("main")
+	wantState(t, rep, StateReview)
+	if rep.Review != ReviewFirstSync {
+		t.Errorf("review = %s", rep.Review)
+	}
+	if len(e.branch("main")) != 0 {
+		t.Error("main must not be created by the app")
+	}
+	box := e.branch("box")
 	for _, p := range []string{"homeassistant/configuration.yaml", "app_configs/a0d7b954_appdaemon/apps.yaml", "share/notes.txt", ".gitignore"} {
-		if _, ok := main[p]; !ok {
-			t.Errorf("%s missing from main", p)
+		if _, ok := box[p]; !ok {
+			t.Errorf("%s missing from box", p)
 		}
 	}
-	for p := range main {
+	for p := range box {
 		for _, bad := range []string{".storage", ".db", "secrets.yaml", "ssl/", "backup/"} {
 			if strings.Contains(p, bad) {
 				t.Errorf("%s should be ignored by the base .gitignore", p)
 			}
 		}
 	}
-	if !maps(e.branch("box"), main) {
+	wantState(t, e.sync(), StateReview)
+
+	// The user creates main from box; syncing resumes.
+	e.mergeBoxIntoMain()
+	wantState(t, e.sync(), StateIdle)
+	if !maps(e.branch("box"), e.branch("main")) {
 		t.Error("box and main differ after the first sync")
 	}
 	if e.ha.checks != 0 || e.ha.reloads != 0 {
@@ -194,7 +227,7 @@ func TestBoxAndMainChangesFlowBothWays(t *testing.T) {
 	e := newEnv(t)
 	e.write("homeassistant/automations.yaml", "[]\n")
 	e.write("homeassistant/scripts.yaml", "{}\n")
-	e.sync()
+	e.firstSync()
 
 	e.write("homeassistant/scripts.yaml", "s: 1\n")
 	e.pushMain(map[string]string{"homeassistant/automations.yaml": "- id: '1'\n"})
@@ -219,7 +252,7 @@ func TestBoxAndMainChangesFlowBothWays(t *testing.T) {
 func TestChangeOutsideHomeAssistantIsNotChecked(t *testing.T) {
 	e := newEnv(t)
 	e.write("share/x.txt", "1\n")
-	e.sync()
+	e.firstSync()
 	e.pushMain(map[string]string{"share/x.txt": "2\n"})
 	rep := e.sync()
 	if !rep.Applied || e.read("share/x.txt") != "2\n" || e.ha.checks != 0 || e.ha.reloads != 0 {
@@ -230,7 +263,7 @@ func TestChangeOutsideHomeAssistantIsNotChecked(t *testing.T) {
 func TestCheckErrorsSkipReloadAndStayUntilFixed(t *testing.T) {
 	e := newEnv(t)
 	e.write("homeassistant/configuration.yaml", "ok: 1\n")
-	e.sync()
+	e.firstSync()
 
 	e.ha.result = ha.CheckResult{Valid: false, Errors: "broken"}
 	e.pushMain(map[string]string{"homeassistant/configuration.yaml": "broken: [\n"})
@@ -262,7 +295,7 @@ func TestCheckAndReloadCanBeTurnedOff(t *testing.T) {
 	e := newEnv(t)
 	e.cfg.CheckConfig, e.cfg.Reload = false, false
 	e.write("homeassistant/a.yaml", "1\n")
-	e.sync()
+	e.firstSync()
 	e.pushMain(map[string]string{"homeassistant/a.yaml": "2\n"})
 	if rep := e.sync(); !rep.Applied || e.ha.checks != 0 || e.ha.reloads != 0 {
 		t.Errorf("rep %+v, ha %+v", rep, e.ha)
@@ -272,7 +305,7 @@ func TestCheckAndReloadCanBeTurnedOff(t *testing.T) {
 func TestConflictPushesOnlyBoxAndMergeOptionsResolve(t *testing.T) {
 	e := newEnv(t)
 	e.write("homeassistant/a.yaml", "v: 1\n")
-	e.sync()
+	e.firstSync()
 	e.write("homeassistant/a.yaml", "v: box\n")
 	e.pushMain(map[string]string{"homeassistant/a.yaml": "v: main\n"})
 
@@ -299,7 +332,7 @@ func TestConflictPushesOnlyBoxAndMergeOptionsResolve(t *testing.T) {
 func TestGitattributesFromMainApply(t *testing.T) {
 	e := newEnv(t)
 	e.write("share/list.txt", "a\n")
-	e.sync()
+	e.firstSync()
 	e.pushMain(map[string]string{".gitattributes": "share/list.txt merge=union\n"})
 	e.sync()
 	e.write("share/list.txt", "a\nbox\n")
@@ -314,7 +347,7 @@ func TestIgnoredPathLeavesTheRepoButStaysOnDisk(t *testing.T) {
 	e := newEnv(t)
 	e.write("share/keep.txt", "k\n")
 	e.write("share/drop.txt", "d\n")
-	e.sync()
+	e.firstSync()
 	e.pushMain(map[string]string{".gitignore": e.branch("main")[".gitignore"] + "share/drop.txt\n"})
 	e.sync() // applies the new .gitignore
 	e.sync() // the next snapshot honors it
@@ -336,11 +369,11 @@ func TestTooLargeStopsTheCycle(t *testing.T) {
 	if len(rep.TooLarge) != 1 || !strings.HasPrefix(rep.TooLarge[0], "share/big.bin") {
 		t.Errorf("too large = %v", rep.TooLarge)
 	}
-	if len(e.branch("main")) != 0 {
+	if len(e.branch("main")) != 0 || len(e.branch("box")) != 0 {
 		t.Error("nothing should be committed")
 	}
 	e.remove("share/big.bin")
-	wantState(t, e.sync(), StateIdle)
+	e.firstSync()
 }
 
 func TestMassDeletionFromMainIsHeldBack(t *testing.T) {
@@ -349,7 +382,7 @@ func TestMassDeletionFromMainIsHeldBack(t *testing.T) {
 	for i := range 30 {
 		e.write(filepath.Join("share", string(rune('a'+i%26))+strings.Repeat("x", i/26)+".txt"), "x\n")
 	}
-	e.sync()
+	e.firstSync()
 	for p := range e.branch("main") {
 		if strings.HasPrefix(p, "share/") {
 			changes[p] = testkit.Del
@@ -373,7 +406,7 @@ func TestMassDeletionFromTheBoxNeedsReview(t *testing.T) {
 	for i := range 30 {
 		e.write(filepath.Join("share", "f"+strings.Repeat("x", i)+".txt"), "x\n")
 	}
-	e.sync()
+	e.firstSync()
 	e.remove("share")
 	rep := e.sync()
 	wantState(t, rep, StateReview)
@@ -416,7 +449,7 @@ func TestFirstSyncAgainstExistingMainWaitsForTheUser(t *testing.T) {
 func TestRootChangeNeedsReview(t *testing.T) {
 	e := newEnv(t)
 	e.write("homeassistant/a.yaml", "1\n")
-	e.sync()
+	e.firstSync()
 	e.cfg.Root = "config"
 	rep := e.sync()
 	wantState(t, rep, StateReview)
@@ -434,7 +467,7 @@ func TestNarrowRootSyncsOnlyThatFolder(t *testing.T) {
 	e.write("homeassistant/configuration.yaml", "a: 1\n")
 	e.write("homeassistant/.storage/core.config_entries", "{}")
 	e.write("share/x.txt", "not synced\n")
-	e.sync()
+	e.firstSync()
 	main := e.branch("main")
 	if main["configuration.yaml"] != "a: 1\n" || main["share/x.txt"] != "" || main[".storage/core.config_entries"] != "" {
 		t.Errorf("main = %v", main)
@@ -455,7 +488,7 @@ func TestTopLevelCollisionWithTheContainer(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.write("share/x.txt", "1\n")
-	e.sync()
+	e.firstSync()
 	e.pushMain(map[string]string{"data/options.json": "{}", "README.md": "# ok\n"})
 	rep := e.sync()
 	wantState(t, rep, StatePathCollision)
@@ -470,7 +503,7 @@ func TestTopLevelCollisionWithTheContainer(t *testing.T) {
 func TestTopLevelFilesAreRestoredWhenTheContainerIsRecreated(t *testing.T) {
 	e := newEnv(t)
 	e.write("share/x.txt", "1\n")
-	e.sync()
+	e.firstSync()
 	e.pushMain(map[string]string{"README.md": "# home\n"})
 	e.sync()
 	e.remove("README.md")
@@ -488,8 +521,7 @@ func TestSecretsWarnByDefaultAndBlockWhenAsked(t *testing.T) {
 	const token = "ghp_" + "0123456789abcdefghijABCDEFGHIJ012345"
 	e := newEnv(t)
 	e.write("homeassistant/configuration.yaml", "token: "+token+"\n")
-	rep := e.sync()
-	wantState(t, rep, StateIdle)
+	rep := e.firstSync()
 	if len(rep.Findings) != 1 || e.branch("main")["homeassistant/configuration.yaml"] == "" {
 		t.Errorf("warn mode should commit and report: %+v", rep)
 	}
@@ -511,7 +543,7 @@ func TestSecretsWarnByDefaultAndBlockWhenAsked(t *testing.T) {
 	e2.cfg.SecretScan.Mode = config.SecretsBlock
 	e2.write("homeassistant/configuration.yaml", "token: "+token+"\n")
 	wantState(t, e2.sync(), StateBlockedSecrets)
-	if len(e2.branch("main")) != 0 {
+	if len(e2.branch("main")) != 0 || len(e2.branch("box")) != 0 {
 		t.Error("block mode must not commit")
 	}
 }
@@ -519,7 +551,7 @@ func TestSecretsWarnByDefaultAndBlockWhenAsked(t *testing.T) {
 func TestDryRunWritesNothing(t *testing.T) {
 	e := newEnv(t)
 	e.write("share/x.txt", "1\n")
-	e.sync()
+	e.firstSync()
 	e.write("share/x.txt", "2\n")
 	e.pushMain(map[string]string{"share/y.txt": "new\n"})
 	before, _ := e.remote.ResolveRef(ctx, "refs/heads/main")
@@ -546,7 +578,7 @@ func TestEditDuringApplyIsRetried(t *testing.T) {
 	e := newEnv(t)
 	e.write("share/a.txt", "1\n")
 	e.write("share/b.txt", "1\n")
-	e.sync()
+	e.firstSync()
 	e.pushMain(map[string]string{"share/a.txt": "main\n"})
 	e.hooks.beforeApply = func(attempt int) {
 		if attempt == 1 {
@@ -568,7 +600,7 @@ func TestEditDuringApplyIsRetried(t *testing.T) {
 func TestPushRaceIsRetried(t *testing.T) {
 	e := newEnv(t)
 	e.write("share/a.txt", "1\n")
-	e.sync()
+	e.firstSync()
 	e.write("share/a.txt", "2\n")
 	e.hooks.beforePush = func(attempt int) {
 		if attempt == 1 {

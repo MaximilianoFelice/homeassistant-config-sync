@@ -14,9 +14,12 @@ Syncs the folders this app can see (Home Assistant's configuration, other apps' 
 3. In **Configuration**, set `repository` (the HTTPS URL, e.g. `https://github.com/you/home.git`) and `token`.
 4. Start the app.
 
-If the repository is empty, the first sync publishes everything (minus what the base `.gitignore` leaves out) to `main` and `box`.
+The first sync never touches `main`: it pushes only the `box` branch and waits for you. What `main` holds is always your decision.
 
-If the repository already has content, the first sync pushes only the `box` branch, on top of `main`, and waits: compare `main` with `box` (a PR shows exactly how the box differs), leave the real state in `main` by merging `box` (to keep `main` as it is, `git merge -s ours box`), and syncing resumes by itself.
+- **Empty repository:** `box` holds everything the base `.gitignore` lets through. Review it and create `main` from it, for example with `git push origin origin/box:refs/heads/main` or by creating the branch in the host's web UI. On GitHub the first branch pushed becomes the default one, so set `main` as the default branch afterwards.
+- **Repository with content:** `box` goes on top of `main`. Compare `main` with `box` (a PR shows exactly how the box differs) and leave the real state in `main` by merging `box`. To keep `main` as it is, use `git merge -s ours box`.
+
+Syncing resumes by itself once `box` is part of `main`.
 
 ## The repository
 

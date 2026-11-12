@@ -44,7 +44,7 @@ export const STATES = {
 
 /** Why a review is needed. */
 export const REVIEWS = {
-  first_sync: "This is the first sync against a repo that already has content.",
+  first_sync: "This is the first sync: nothing reaches main until you merge box into it.",
   root_changed: "The root option changed, so the repo layout changed.",
   mass_delete: "The box deleted many files.",
 };

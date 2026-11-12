@@ -129,7 +129,7 @@ The box is one more clone of the repo. `main` belongs to people; `box` is writte
 ```
 
 - **The merge's first parent is `main`**, so `git log --first-parent main` tells the human history.
-- **First sync against a `main` with content, and root changes:** the snapshot goes on top of `main`, only `box` is pushed, nothing is applied, and the state is `review`. The user leaves the real state in `main` by merging `box` (a PR or locally; `git merge -s ours box` keeps `main` as it is). The app resumes when `box` is an ancestor of `main`. On top of `main` (not an unrelated root) so that `main..box` shows exactly how the box differs and a PR can be opened. An empty repo needs no review.
+- **First sync (always, even against an empty repo) and root changes:** only `box` is pushed, nothing is applied, and the state is `review`. When `main` exists the snapshot goes on top of it (not an unrelated root) so that `main..box` shows exactly how the box differs and a PR can be opened; the user leaves the real state in `main` by merging `box` (a PR or locally; `git merge -s ours box` keeps `main` as it is). When the repo is empty the user creates `main` from `box`. The app never creates `main` by itself: what it holds is always the user's decision. The app resumes when `box` is an ancestor of `main`.
 - **Merging is `git merge main` on `box`:** `ours` is the box, `theirs` is `main`. `merge_options` are passed as `-X` unchanged; per-path rules come from `main`'s `.gitattributes` (`merge=union`, `-merge`…). Custom merge drivers are not supported: they would run arbitrary commands inside the app.
 - **Commit messages:** merges use git's standard message; snapshots are `box: <path>` or `box: <n> changes`, with each path and its status letter in the body (cut at 100). Author: `commit_author`; committer: the engine.
 
@@ -230,7 +230,7 @@ All agreed with the maintainer on 2026-11-12, one by one, replacing the v0.0.x d
 5. Files above the size limit stop the cycle (10 MB, configurable).
 6. Symlinks stored as links. General rule: git's standard behavior first, anything else only as an option if someone needs it.
 7. Two branches, `box` and `main`; the app pushes the applied result to both.
-8. First sync against a repo with content: only `box` is pushed and the user resolves in `main`; no accept button.
+8. First sync, with or without content in the repo: only `box` is pushed and the user resolves in `main` (or creates it from `box`); no accept button.
 9. No file validation, no rollback; `check_config` informs and the reload is skipped on errors; both can be turned off.
 10. Home Assistant: restart notice only. Other apps: nothing.
 11. HTTPS with an access token only; SSH removed.

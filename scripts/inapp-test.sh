@@ -36,13 +36,19 @@ cp /homeassistant/configuration.yaml "$E/configuration.before"
 echo "== init + first sync with root / (checker: Supervisor)"
 hcs init $A > "$E/init.txt" 2>&1 && ok "init" || bad "init: $(cat "$E/init.txt")"
 hcs sync $A > "$E/s1.txt" 2>&1
-[ "$(state "$E/s1.txt")" = idle ] && ok "first sync idle" || bad "first sync: $(tail -5 "$E/s1.txt")"
-files=$(git --git-dir="$E/origin.git" ls-tree -r --name-only main)
-echo "$files" | grep -qx 'homeassistant/configuration.yaml' && ok "homeassistant/configuration.yaml in main" || bad "configuration.yaml not in main"
-echo "$files" | grep -qx '.gitignore' && ok "base .gitignore committed" || bad "no .gitignore in main"
+[ "$(state "$E/s1.txt")" = review ] && ok "first sync waits for review" || bad "first sync: $(tail -5 "$E/s1.txt")"
+git --git-dir="$E/origin.git" rev-parse -q --verify refs/heads/main >/dev/null && bad "main was created by the app" || ok "only box pushed"
+files=$(git --git-dir="$E/origin.git" ls-tree -r --name-only box)
+echo "$files" | grep -qx 'homeassistant/configuration.yaml' && ok "homeassistant/configuration.yaml in box" || bad "configuration.yaml not in box"
+echo "$files" | grep -qx '.gitignore' && ok "base .gitignore committed" || bad "no .gitignore in box"
 echo "$files" | grep -q '^homeassistant/\.storage/' && bad ".storage reached the repo" || ok ".storage left out"
 echo "$files" | grep -qE '^(bin|etc|usr|data)/' && bad "the container's own folders reached the repo" || ok "only the mounts and the repo's files"
 [ ! -d /homeassistant/.git ] && [ ! -d /.git ] && ok "no .git in the work tree" || bad "a .git appeared"
+
+echo "== the person creates main from box → syncing resumes"
+git --git-dir="$E/origin.git" branch main box
+hcs sync $A > "$E/s1b.txt" 2>&1
+[ "$(state "$E/s1b.txt")" = idle ] && ok "idle after main is created" || bad "after creating main: $(tail -5 "$E/s1b.txt")"
 
 echo "== change from 'main' → check_config through the proxy + reload"
 git clone -q "$E/origin.git" "$E/dev"

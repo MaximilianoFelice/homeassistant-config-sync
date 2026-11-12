@@ -81,7 +81,7 @@ Syncing a live system with a repo is a merge problem, and git already solves mer
 - **The box is a clone.** The mounted folders are git's work tree; the repo is bare and lives in the app's private storage, so no `.git` ever appears in your folders.
 - **Git does the work.** `git add -A` takes the snapshot, `git merge-tree` merges, `git read-tree -u` updates the files and refuses if something changed underneath. The app adds only what git does not do: the guards, Home Assistant's check and reload, the secret scanner, and telling you what happened.
 - **The repo configures the app.** What is synced is the repo's own `.gitignore`; per-file merge rules are its `.gitattributes`; secret-scanner rules and ignores are its `.gitleaks.toml` and `.gitleaksignore`. The app's options only say how to reach the repo and how the box behaves.
-- **Humans resolve what is ambiguous.** First syncs against an existing repo, conflicts and mass deletions push only `box` and wait for you to merge in `main`. There is no "accept" button that decides for you.
+- **Humans resolve what is ambiguous.** First syncs, conflicts and mass deletions push only `box` and wait for you to merge it into `main`. There is no "accept" button that decides for you.
 
 ## Design principles
 
@@ -101,7 +101,7 @@ The full design, with every decision and why, is in [docs/design.md](docs/design
 - `repository`: your repo's HTTPS URL, e.g. `https://github.com/you/home.git`;
 - `token`: an access token with read and write access to the repo's contents (on GitHub, a fine-grained token limited to that repo).
 
-Start it. With an empty repo, the first sync publishes everything except what the base `.gitignore` leaves out. With a repo that already has content, it pushes only `box`, on top of `main`, and waits for you to merge it. Details in the [app documentation](homeassistant_config_sync/DOCS.md).
+Start it. The first sync pushes only `box` and waits for you, even with an empty repo: with an empty repo you create `main` from `box`; with a repo that already has content, `box` goes on top of `main` and you merge it. Details in the [app documentation](homeassistant_config_sync/DOCS.md).
 
 **The integration (optional).** In HACS: ⋮ → Custom repositories, add the same URL as an *Integration*, install **Git Config Sync** and restart Home Assistant. The app announces itself, so the integration appears under Settings → Devices & services → Discovered. It adds:
 

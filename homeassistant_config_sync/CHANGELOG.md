@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- The first sync always waits for you, even with an empty repo: it pushes only the `box` branch and never creates `main`. With an empty repo, create `main` from `box` (`git push origin origin/box:refs/heads/main`, or from the host's web UI; on GitHub, then set `main` as the default branch). Syncing resumes once `box` is part of `main`.
+
 ## 0.1.0
 
 A redesign around plain git. **Breaking:** after updating, open the app's Configuration tab and reset the options (the old ones no longer validate), and move an existing repo to the new layout (`git mv config homeassistant`).

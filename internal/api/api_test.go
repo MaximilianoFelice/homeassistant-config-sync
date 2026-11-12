@@ -425,11 +425,15 @@ func TestRealEngineThroughAPI(t *testing.T) {
 		t.Fatalf("POST = %d", resp.StatusCode)
 	}
 	j := waitJob(t, s, out["job_id"])
-	if j.Status != JobDone || j.Report.State != engine.StateIdle {
+	// The first sync pushes only box and waits for the user.
+	if j.Status != JobDone || j.Report.State != engine.StateReview {
 		t.Fatalf("job = %+v", j)
 	}
-	if got := testkit.Tree(t, origin, "refs/heads/main")["homeassistant/automations.yaml"]; got != "[]\n" {
-		t.Errorf("main/automations = %q", got)
+	if got := testkit.Tree(t, origin, "refs/heads/box")["homeassistant/automations.yaml"]; got != "[]\n" {
+		t.Errorf("box/automations = %q", got)
+	}
+	if main := testkit.Tree(t, origin, "refs/heads/main"); len(main) != 0 {
+		t.Errorf("main must not be created by the app: %v", main)
 	}
 	if _, err := os.Stat(filepath.Join(stateDir, "state.json")); err != nil {
 		t.Error("the job must persist the state")
