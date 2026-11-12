@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # A real Home Assistant Supervisor, in Docker, to test the app without
 # touching the box. Uses the official add-on devcontainer (Docker in Docker,
-# privileged container) and mounts homeassistant_config_sync/ as a local app.
+# privileged container) and mounts a staged copy of homeassistant_config_sync/
+# (.sandbox/addon-local, without the `image:` line, so the Supervisor builds
+# it locally) as a local app.
 #
 #   scripts/supervisor-dev.sh up      starts everything (slow the first time)
 #   scripts/supervisor-dev.sh ha …    runs the Supervisor's `ha` CLI
@@ -14,7 +16,7 @@ cd "$(dirname "$0")/.."
 
 name=hcs-supervisor
 image=${DEVCONTAINER_IMAGE:-ghcr.io/home-assistant/devcontainer:addons}
-addon=$PWD/homeassistant_config_sync
+addon=$PWD/.sandbox/addon-local
 
 in_dc() { docker exec "$name" "$@"; }
 
@@ -23,7 +25,7 @@ case ${1:-} in
     if docker container inspect "$name" >/dev/null 2>&1; then
       echo "already running"; exit 0
     fi
-    [[ -x $addon/bin/hcs-amd64 ]] || scripts/build-addon.sh
+    [[ -x $addon/bin/hcs-amd64 ]] || scripts/build-addon.sh --stage "$addon"
     docker volume create "$name-docker" >/dev/null
     docker volume create "$name-share" >/dev/null
     docker run -d --name "$name" --privileged \
@@ -52,7 +54,15 @@ case ${1:-} in
     for _ in $(seq 1 180); do
       # "landingpage" is the placeholder while the Supervisor installs Core.
       if in_dc docker exec hassio_cli ha core info --raw-json 2>/dev/null | grep '"version"' | grep -vq landingpage; then
-        echo; in_dc docker exec hassio_cli ha core info | grep -E '^(version|machine|arch):' || true
+        # The dev channel installs a Core dev build; pin the stable channel
+        # and the Core version under test (HA_VERSION, default the one the
+        # project targets). This also guards against a job condition that
+        # blocks installs in Docker-in-Docker.
+        in_dc docker exec hassio_cli ha jobs options --ignore-conditions healthy >/dev/null
+        in_dc docker exec hassio_cli ha supervisor options --channel stable >/dev/null
+        echo; echo "pinning Core to ${HA_VERSION:-2026.11.1}"
+        in_dc docker exec hassio_cli ha core update --version "${HA_VERSION:-2026.11.1}" --no-progress >/dev/null
+        in_dc docker exec hassio_cli ha core info | grep -E '^(version|machine|arch):' || true
         exit 0
       fi
       printf "."; sleep 5

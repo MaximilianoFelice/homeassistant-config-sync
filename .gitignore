@@ -3,5 +3,10 @@
 /bin/
 /homeassistant_config_sync/bin/
 
+# Web UI: dependencies and build output (embedded into the binary at build time)
+/ui/node_modules/
+/internal/webui/dist/*
+!/internal/webui/dist/.gitkeep
+
 # Local test state (box copies, test bare repos, test deploy keys)
 /.sandbox/

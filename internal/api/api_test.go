@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -299,6 +300,82 @@ func TestRotateKeyEndpoint(t *testing.T) {
 	}
 	close(f.block)
 	waitJob(t, s2, j.ID)
+}
+
+func TestEventStreamSendsJobEvents(t *testing.T) {
+	f := &fake{block: make(chan struct{}), report: engine.Report{State: engine.StateIdle}}
+	s, _ := newServer(t, f, "")
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+"/api/v1/events", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.Header.Get("Content-Type") != "text/event-stream" {
+		t.Fatalf("content-type = %q", resp.Header.Get("Content-Type"))
+	}
+	lines := make(chan string, 32)
+	go func() {
+		sc := bufio.NewScanner(resp.Body)
+		for sc.Scan() {
+			lines <- sc.Text()
+		}
+		close(lines)
+	}()
+	next := func(prefix string) string {
+		for {
+			select {
+			case l, ok := <-lines:
+				if !ok {
+					t.Fatalf("stream closed waiting for %q", prefix)
+				}
+				if strings.HasPrefix(l, prefix) {
+					return l
+				}
+			case <-ctx.Done():
+				t.Fatalf("timeout waiting for %q", prefix)
+			}
+		}
+	}
+	next("event: hello")
+	j, _ := s.Trigger("test", engine.SyncOptions{})
+	next("event: job")
+	if l := next("data: "); !strings.Contains(l, `"status":"running"`) || !strings.Contains(l, j.ID) {
+		t.Errorf("start event = %s", l)
+	}
+	close(f.block)
+	next("event: job")
+	if l := next("data: "); !strings.Contains(l, `"status":"done"`) {
+		t.Errorf("end event = %s", l)
+	}
+
+	// Without a token, no stream.
+	req2, _ := http.NewRequest("GET", srv.URL+"/api/v1/events", nil)
+	resp2, err := srv.Client().Do(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp2.Body.Close()
+	if resp2.StatusCode != http.StatusUnauthorized {
+		t.Errorf("without token = %d", resp2.StatusCode)
+	}
+}
+
+func TestUIIsServedWithoutAuth(t *testing.T) {
+	s, _ := newServer(t, &fake{}, "")
+	rec, _ := do(t, s.Handler(), "GET", "/", "", false)
+	if rec.Code == http.StatusUnauthorized {
+		t.Fatal("the static UI must not require the API token")
+	}
+	if rec.Code != http.StatusOK && rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("GET / = %d", rec.Code)
+	}
 }
 
 func TestSchedulerTriggersAndSkipsWhenBusy(t *testing.T) {

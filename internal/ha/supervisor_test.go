@@ -241,6 +241,20 @@ func TestRestartAndUnavailableAutomations(t *testing.T) {
 	}
 }
 
+func TestPublishDiscovery(t *testing.T) {
+	f := &fakeCore{}
+	s := newClient(t, f)
+	s.SupervisorURL = strings.TrimSuffix(s.BaseURL, "/core/api")
+	err := s.PublishDiscovery(context.Background(), "config_sync", map[string]any{"host": "local-x", "port": 8099, "token": "t"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := f.calls[0]
+	if c.Path != "POST /discovery" || c.Body["service"] != "config_sync" || c.Body["config"].(map[string]any)["port"] != float64(8099) {
+		t.Errorf("call = %+v", c)
+	}
+}
+
 func TestNewItems(t *testing.T) {
 	if got := NewItems([]string{"a", "b"}, []string{"b", "c"}); !reflect.DeepEqual(got, []string{"c"}) {
 		t.Errorf("= %v", got)

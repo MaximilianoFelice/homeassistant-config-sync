@@ -19,6 +19,7 @@ import (
 
 	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/config"
 	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/engine"
+	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/webui"
 )
 
 // IngressIP is the IP the Supervisor proxies ingress from.
@@ -78,6 +79,8 @@ type Server struct {
 	running *Job
 	jobs    []*Job
 	wg      sync.WaitGroup
+
+	events broker
 }
 
 // New creates the server.
@@ -109,7 +112,9 @@ func (s *Server) Trigger(trigger string, so engine.SyncOptions) (*Job, error) {
 	}
 	s.wg.Add(1)
 	go s.run(j)
-	return s.snapshot(j), nil
+	started := s.snapshot(j)
+	s.events.publish("job", started)
+	return started, nil
 }
 
 func (s *Server) run(j *Job) {
@@ -128,6 +133,7 @@ func (s *Server) run(j *Job) {
 	s.running = nil
 	done := s.snapshot(j)
 	s.mu.Unlock()
+	s.events.publish("job", done)
 	if s.opts.OnJob != nil {
 		s.opts.OnJob(done)
 	}
@@ -170,17 +176,25 @@ func newID() string {
 	return hex.EncodeToString(b)
 }
 
-// Handler returns the API's http.Handler, with authentication.
+// Handler returns the server's http.Handler: the API under /api/ (with
+// authentication) and the web UI everywhere else. The UI is static and holds
+// no data, so it is served without authentication; everything it shows comes
+// from the authenticated API.
 func (s *Server) Handler() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/v1/status", s.status)
-	mux.HandleFunc("GET /api/v1/pending", s.pending)
-	mux.HandleFunc("GET /api/v1/conflict", s.conflict)
-	mux.HandleFunc("POST /api/v1/sync", s.sync)
-	mux.HandleFunc("GET /api/v1/jobs/{id}", s.job)
-	mux.HandleFunc("GET /api/v1/deploy-key", s.deployKey)
-	mux.HandleFunc("POST /api/v1/deploy-key/rotate", s.rotateKey)
-	return s.auth(mux)
+	api := http.NewServeMux()
+	api.HandleFunc("GET /api/v1/status", s.status)
+	api.HandleFunc("GET /api/v1/pending", s.pending)
+	api.HandleFunc("GET /api/v1/conflict", s.conflict)
+	api.HandleFunc("POST /api/v1/sync", s.sync)
+	api.HandleFunc("GET /api/v1/jobs/{id}", s.job)
+	api.HandleFunc("GET /api/v1/deploy-key", s.deployKey)
+	api.HandleFunc("POST /api/v1/deploy-key/rotate", s.rotateKey)
+	api.HandleFunc("GET /api/v1/events", s.eventStream)
+
+	root := http.NewServeMux()
+	root.Handle("/api/", s.auth(api))
+	root.Handle("/", webui.Handler())
+	return root
 }
 
 func (s *Server) auth(next http.Handler) http.Handler {

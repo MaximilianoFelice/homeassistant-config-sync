@@ -1,10 +1,27 @@
 [tools]
 go = "1.27.4"
 golangci-lint = "2.15.0"
+node = "24.22.3"
 
 [tasks.build]
-description = "Build hcs into bin/"
+description = "Build hcs into bin/ (embeds the web UI if it was built)"
 run = "go build -o bin/hcs ./cmd/hcs"
+
+[tasks."ui:install"]
+description = "Install the web UI dependencies (exact versions from ui/package-lock.json)"
+dir = "ui"
+run = "npm ci --no-audit --no-fund"
+
+[tasks."ui:build"]
+description = "Build the web UI into internal/webui/dist (embedded by go build)"
+dir = "ui"
+depends = ["ui:install"]
+run = "npm run build"
+
+[tasks."ui:dev"]
+description = "Serve the web UI with hot reload, proxying /api to a local hcs serve on :8099"
+dir = "ui"
+run = "npm run dev"
 
 [tasks.test]
 description = "Tests with the race detector"

@@ -13,7 +13,7 @@ api() { # api METHOD PATH [JSON]
 }
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 
-scripts/build-addon.sh >/dev/null
+scripts/build-addon.sh --stage "$PWD/.sandbox/addon-local" >/dev/null
 scripts/supervisor-dev.sh ha jobs options --ignore-conditions healthy >/dev/null
 scripts/supervisor-dev.sh ha store reload >/dev/null
 
@@ -38,6 +38,15 @@ api POST "/addons/$slug/restart" >/dev/null || api POST "/addons/$slug/start" >/
 sleep 10
 echo "  state: $(api GET "/addons/$slug/info" | json 'd["data"]["state"]')"
 api GET "/addons/$slug/logs" | sed -E 's/(ssh-ed25519 .{10}).*/\1…/; s/\x1b\[[0-9;]*m//g' | tail -8 | sed 's/^/  log: /'
+
+echo "== web UI and API on the internal network"
+info=$(api GET "/addons/$slug/info")
+echo "  ingress: $(echo "$info" | json 'd["data"]["ingress"]'), ingress_url: $(echo "$info" | json 'd["data"]["ingress_url"]')"
+host=$(echo "$info" | json 'd["data"]["hostname"]')
+ui=$(dc docker exec hassio_cli curl -s -o /dev/null -w '%{http_code}' "http://$host:8099/")
+apicode=$(dc docker exec hassio_cli curl -s -o /dev/null -w '%{http_code}' "http://$host:8099/api/v1/status")
+[[ $ui == 200 ]] && echo "  OK   UI served at http://$host:8099/" || echo "  FAIL UI returned $ui"
+[[ $apicode == 401 ]] && echo "  OK   API requires a token outside ingress" || echo "  FAIL API returned $apicode without a token"
 
 echo "== full cycle from inside the container"
 container=$(dc docker ps --format '{{.Names}}' | grep homeassistant_config_sync | head -1)

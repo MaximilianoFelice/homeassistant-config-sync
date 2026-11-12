@@ -13,4 +13,4 @@ fi
 echo "Deploy key for this app (add it in GitHub → Settings → Deploy keys, with Allow write access):"
 hcs deploy-key --state-dir /data
 
-exec hcs serve --config "$options" --state-dir /data --listen 0.0.0.0:8099 --stdin --sync-on-start
+exec hcs serve --config "$options" --state-dir /data --listen 0.0.0.0:8099 --stdin --sync-on-start --discovery

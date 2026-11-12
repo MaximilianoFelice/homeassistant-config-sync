@@ -39,11 +39,11 @@ const (
 
 // Change is a change on the box relative to the box branch.
 type Change struct {
-	Path   string
-	Kind   ChangeKind
-	Mode   string
-	OldOID string
-	NewOID string
+	Path   string     `json:"path"`
+	Kind   ChangeKind `json:"kind"`
+	Mode   string     `json:"mode"`
+	OldOID string     `json:"old_oid,omitempty"`
+	NewOID string     `json:"new_oid,omitempty"`
 }
 
 // Options configures a snapshot.

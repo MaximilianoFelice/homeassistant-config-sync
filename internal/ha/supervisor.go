@@ -36,7 +36,11 @@ var ErrNoToken = errors.New("no SUPERVISOR_TOKEN: the Supervisor client only wor
 // authenticated with the SUPERVISOR_TOKEN the app receives with
 // homeassistant_api: true. It does not use long-lived tokens.
 type Supervisor struct {
-	BaseURL        string
+	// BaseURL is the Core API through the Supervisor proxy (DefaultCoreURL).
+	BaseURL string
+	// SupervisorURL is the Supervisor's own API (DefaultSupervisorURL), used
+	// for discovery.
+	SupervisorURL  string
 	Token          string
 	HTTP           *http.Client
 	CheckTimeout   time.Duration
@@ -134,6 +138,24 @@ func (s *Supervisor) do(ctx context.Context, method, path string, timeout time.D
 		}
 	}
 	return nil
+}
+
+// DefaultSupervisorURL is the Supervisor's own API (not the Core proxy).
+const DefaultSupervisorURL = "http://supervisor"
+
+// PublishDiscovery announces this app to Home Assistant through the
+// Supervisor discovery API, so the integration for `service` can set itself
+// up. It needs `hassio_api: true` and the service listed under `discovery:`
+// in the app's config.yaml. config is passed to the integration as is.
+func (s *Supervisor) PublishDiscovery(ctx context.Context, service string, config map[string]any) error {
+	root := s.SupervisorURL
+	if root == "" {
+		root = DefaultSupervisorURL
+	}
+	sup := *s
+	sup.BaseURL = root
+	return sup.post(ctx, "/discovery", orDefault(s.RequestTimeout, DefaultRequestTimeout),
+		map[string]any{"service": service, "config": config}, nil)
 }
 
 // Restart implements Restarter with homeassistant.restart. HA answers before

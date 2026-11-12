@@ -1,0 +1,124 @@
+# Release: pushing a tag vX.Y.Z (made with scripts/release.sh) runs every
+# test suite, including the Docker-based ones, then publishes the app images
+# for both architectures to GHCR and creates the GitHub release.
+#
+# Every step is a script in scripts/, so all of it can be run and debugged
+# locally; this file only wires them together.
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to (re)publish, e.g. v0.0.1
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  test:
+    name: Full test suite
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+      - name: Version matches the tag
+        run: scripts/release-verify.sh "$TAG"
+      - name: Lint, race tests, build
+        run: mise run check
+      - name: UI tests and build
+        run: |
+          mise run ui:build
+          cd ui && npm test
+      - name: End-to-end with the real check_config (Docker)
+        run: scripts/e2e-sandbox.sh
+      - name: HA client against a real Core (Docker)
+        run: scripts/ha-core-test.sh
+      - name: Integration tests
+        if: hashFiles('custom_components/config_sync/manifest.json') != ''
+        run: mise run integration:test
+
+  supervisor:
+    name: App on a real Supervisor (Docker in Docker)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+      - name: Start the Supervisor
+        run: scripts/supervisor-dev.sh up
+      - name: Build, install and run the app
+        run: scripts/supervisor-test.sh
+      - name: Supervisor log on failure
+        if: failure()
+        run: scripts/supervisor-dev.sh logs 200
+
+  images:
+    name: Images (amd64, aarch64) to GHCR
+    needs: [test, supervisor]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build the app (UI + binaries)
+        run: VERSION="$TAG" scripts/build-addon.sh
+      - name: Build and push the images
+        run: scripts/release-images.sh "${TAG#v}" --push
+
+  release:
+    name: GitHub release
+    needs: images
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+      - name: Build the CLI binaries
+        run: |
+          VERSION="$TAG" scripts/build-addon.sh
+          mkdir -p dist
+          cp homeassistant_config_sync/bin/hcs-amd64 dist/hcs-linux-amd64
+          cp homeassistant_config_sync/bin/hcs-aarch64 dist/hcs-linux-arm64
+          (cd dist && sha256sum hcs-* > SHA256SUMS)
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          scripts/release-notes.sh "${TAG#v}" > notes.md
+          gh release create "$TAG" dist/* --title "Git Config Sync $TAG" --notes-file notes.md --verify-tag

@@ -52,12 +52,12 @@ const (
 // Skipped is a managed path left out of this scan. The snapshot keeps the
 // previous version: skipping never amounts to deleting.
 type Skipped struct {
-	RepoPath string
-	BoxPath  string
-	Reason   SkipReason
+	RepoPath string     `json:"repo_path"`
+	BoxPath  string     `json:"box_path"`
+	Reason   SkipReason `json:"reason"`
 	// Dir means an entire (unreadable) directory was skipped: everything
 	// under RepoPath keeps its previous version.
-	Dir bool
+	Dir bool `json:"dir,omitempty"`
 }
 
 // Covers says whether the skip applies to a repo path.

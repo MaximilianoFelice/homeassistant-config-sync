@@ -15,6 +15,7 @@ import (
 
 	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/api"
 	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/engine"
+	"github.com/MaximilianoFelice/homeassistant-config-sync/internal/ha"
 )
 
 // cmdServe starts the API, the scheduler and (optionally) the stdin channel.
@@ -74,6 +75,9 @@ func cmdServe(g globalFlags, stdout, stderr io.Writer) int {
 			logger.Printf("could not start the initial sync: %v", err)
 		}
 	}
+	if g.discovery {
+		go announce(ctx, logger, ln, tok)
+	}
 
 	<-ctx.Done()
 	logger.Print("shutting down: waiting for the running sync to finish")
@@ -82,6 +86,44 @@ func cmdServe(g globalFlags, stdout, stderr io.Writer) int {
 	_ = httpSrv.Shutdown(shCtx)
 	srv.Wait()
 	return exitOK
+}
+
+// DiscoveryService is the Supervisor discovery service, the domain of the
+// Home Assistant integration (custom_components/config_sync).
+const DiscoveryService = "config_sync"
+
+// announce publishes this app through Supervisor discovery so the
+// config_sync integration can set itself up: the app's hostname on the
+// internal network, the API port and the API token. Retries a few times,
+// since the Supervisor may still be starting.
+func announce(ctx context.Context, logger *log.Logger, ln net.Listener, token string) {
+	sup, err := ha.NewSupervisorFromEnv("")
+	if err != nil {
+		logger.Printf("discovery skipped: %v", err)
+		return
+	}
+	host, err := os.Hostname()
+	if err != nil {
+		logger.Printf("discovery skipped: %v", err)
+		return
+	}
+	port := 8099
+	if a, ok := ln.Addr().(*net.TCPAddr); ok {
+		port = a.Port
+	}
+	cfg := map[string]any{"host": host, "port": port, "token": token}
+	for attempt := 1; attempt <= 5; attempt++ {
+		if err = sup.PublishDiscovery(ctx, DiscoveryService, cfg); err == nil {
+			logger.Printf("announced to Home Assistant (discovery %q, host %s:%d)", DiscoveryService, host, port)
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Duration(attempt) * 10 * time.Second):
+		}
+	}
+	logger.Printf("discovery failed (the config_sync integration can still be added by hand): %v", err)
 }
 
 func orManual(d time.Duration) string {

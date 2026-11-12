@@ -49,6 +49,8 @@ type globalFlags struct {
 	stdin       bool
 	syncOnStart bool
 
+	discovery bool
+
 	// Only deploy-key.
 	rotate bool
 }
@@ -65,6 +67,7 @@ func (g *globalFlags) register(fs *flag.FlagSet) {
 	fs.StringVar(&g.listen, "listen", "127.0.0.1:8099", "serve: API address")
 	fs.BoolVar(&g.stdin, "stdin", false, "serve: accept commands on stdin (\"sync\"), like hassio.addon_stdin")
 	fs.BoolVar(&g.syncOnStart, "sync-on-start", false, "serve: run a sync on startup")
+	fs.BoolVar(&g.discovery, "discovery", false, "serve: announce the app to Home Assistant through Supervisor discovery (inside the app)")
 	fs.BoolVar(&g.rotate, "rotate", false, "deploy-key: generate a new key (keeps the old one as id_ed25519.old)")
 }
 
